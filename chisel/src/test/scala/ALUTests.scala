@@ -1,6 +1,9 @@
 // See LICENSE.txt for license details.
 package vta
 
+import chisel3._
+import chisel3.util._
+import chisel3.testers._
 import chisel3.iotesters.{PeekPokeTester, Driver, ChiselFlatSpec}
 import ALU._
 
@@ -11,6 +14,7 @@ class ALUTests(c: ALUSimple)(implicit val p: freechips.rocketchip.config.Paramet
     val b      = rnd.nextInt(127)
     val alu_op = rnd.nextInt(4)
     var output = 0
+    
     if (alu_op == 0) {
       output = if (a < b) a else b
     } else if (alu_op == 1) {
@@ -18,7 +22,7 @@ class ALUTests(c: ALUSimple)(implicit val p: freechips.rocketchip.config.Paramet
     } else if (alu_op == 2) {
       output = a + b
     } else {
-      output = a >> 1
+      output = a >> b.toInt
     }
     poke(c.io.A, a)
     poke(c.io.B, b)

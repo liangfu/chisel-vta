@@ -22,14 +22,8 @@ class ALUIo(implicit p: Parameters) extends CoreBundle()(p) {
 
 import ALU._
 
-// abstract class ALU(implicit val p: Parameters) extends Module {
 abstract class ALU(implicit val p: Parameters) extends Module with CoreParams {
-  val io = IO(new Bundle {
-    val A      = Input(UInt(8.W))
-    val B      = Input(UInt(8.W))
-    val alu_op = Input(UInt(4.W))
-    val out    = Output(UInt(8.W))
-  })
+  val io = IO(new ALUIo())
 }
 
 class ALUSimple(implicit p: Parameters) extends ALU()(p) {
@@ -38,6 +32,6 @@ class ALUSimple(implicit p: Parameters) extends ALU()(p) {
     ALU_MIN -> Mux(io.A < io.B, io.A, io.B),
     ALU_MAX -> Mux(io.A < io.B, io.B, io.A),
     ALU_ADD -> (io.A + io.B),
-    ALU_SHR -> (io.A >> 1)
+    ALU_SHR -> (io.A >> shamt)
   ))
 }
