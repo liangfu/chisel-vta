@@ -1,5 +1,5 @@
 // See LICENSE.txt for license details.
-package examples
+package vta
 
 import chisel3.iotesters.{Driver, TesterOptionsManager}
 import utils.TutorialRunner
@@ -7,9 +7,9 @@ import freechips.rocketchip.config.Parameters
 
 object Launcher {
   val examples = Map(
-      "SimpleALU" -> { (manager: TesterOptionsManager) =>
-        Driver.execute(() => new SimpleALU(), manager) {
-          (c) => new SimpleALUTests(c)
+      "ALUSimple" -> { (manager: TesterOptionsManager) =>
+        Driver.execute(() => new ALUSimple(), manager) {
+          (c) => new ALUTests(c)
         }
       }
       // "Stack" -> { (manager: TesterOptionsManager) =>

@@ -1,9 +1,9 @@
 // See LICENSE.txt for license details.
-package examples
+package vta
 
 import chisel3.iotesters.{PeekPokeTester, Driver, ChiselFlatSpec}
 
-class SimpleALUTests(c: SimpleALU) extends PeekPokeTester(c) {
+class ALUTests(c: ALUSimple) extends PeekPokeTester(c) {
   for (n <- 0 until 64) {
     val a      = rnd.nextInt(127)
     val b      = rnd.nextInt(127)
@@ -26,11 +26,11 @@ class SimpleALUTests(c: SimpleALU) extends PeekPokeTester(c) {
   }
 }
 
-class SimpleALUTester extends ChiselFlatSpec {
-  behavior of "SimpleALU"
+class ALUTester extends ChiselFlatSpec {
+  behavior of "ALUSimple"
   backends foreach {backend =>
     it should s"perform correct math operation on dynamic operand in $backend" in {
-      Driver(() => new SimpleALU(), backend)((c) => new SimpleALUTests(c)) should be (true)
+      Driver(() => new ALUSimple(), backend)((c) => new ALUTests(c)) should be (true)
     }
   }
 }

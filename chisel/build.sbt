@@ -11,10 +11,10 @@ val commonSettings = Seq(
   )
 )
 
-val miniSettings = commonSettings ++ Seq(
-  name := "riscv-mini",
-  version := "2.0-SNAPSHOT",
-  organization := "edu.berkeley.cs")
+val vtaSettings = commonSettings ++ Seq(
+  name := "chisel-vta",
+  version := "0.1-SNAPSHOT",
+  organization := "org.liangfu")
 
 lazy val lib  = project settings commonSettings
-lazy val mini = project in file(".") settings miniSettings dependsOn lib
+lazy val vta = project in file(".") settings vtaSettings dependsOn lib

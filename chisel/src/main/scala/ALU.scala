@@ -1,5 +1,5 @@
 // See LICENSE.txt for license details.
-package examples
+package vta
 
 import chisel3._
 import chisel3.util._
@@ -18,7 +18,7 @@ import ALU._
 // abstract class ALU(implicit val p: Parameters) extends Module {
 // }
 
-class SimpleALU extends Module {
+class ALUSimple extends Module {
   val io = IO(new Bundle {
     val A      = Input(UInt(8.W))
     val B      = Input(UInt(8.W))
