@@ -6,6 +6,7 @@ import utils.TutorialRunner
 import freechips.rocketchip.config.Parameters
 
 object Launcher {
+  implicit val p = (new VTAConfig).toInstance
   val examples = Map(
       "ALUSimple" -> { (manager: TesterOptionsManager) =>
         Driver.execute(() => new ALUSimple(), manager) {
