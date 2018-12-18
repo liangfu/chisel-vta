@@ -54,7 +54,9 @@ run-custom-bmark: $(custom_bmark_out)
 
 # unit tests + integration tests 
 test:
-	$(SBT) $(SBT_FLAGS) test
+	$(SBT) -v "test:runMain examples.Launcher SimpleALU --backend-name verilator"
+
+# $(SBT) $(SBT_FLAGS) test
 
 clean:
 	rm -rf $(gen_dir) $(out_dir) test_run_dir
