@@ -12,12 +12,12 @@ object Launcher {
         Driver.execute(() => new ALUSimple(), manager) {
           (c) => new ALUTests(c)
         }
+      },
+      "ComputeSimple" -> { (manager: TesterOptionsManager) =>
+        Driver.execute(() => new ComputeSimple(), manager) {
+          (c) => new ComputeTests(c)
+        }
       }
-      // "Stack" -> { (manager: TesterOptionsManager) =>
-      //   Driver.execute(() => new Stack(8), manager) {
-      //     (c) => new StackTests(c)
-      //   }
-      // }
   )
   def main(args: Array[String]): Unit = {
     TutorialRunner("examples", examples, args)
