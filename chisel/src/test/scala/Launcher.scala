@@ -7,7 +7,7 @@ import freechips.rocketchip.config.Parameters
 
 object Launcher {
   implicit val p = (new VTAConfig).toInstance
-  val examples = Map(
+  val modules = Map(
       "ALUSimple" -> { (manager: TesterOptionsManager) =>
         Driver.execute(() => new ALUSimple(), manager) {
           (c) => new ALUTests(c)
@@ -20,7 +20,7 @@ object Launcher {
       }
   )
   def main(args: Array[String]): Unit = {
-    TutorialRunner("examples", examples, args)
+    TutorialRunner("vta", modules, args)
   }
 }
 

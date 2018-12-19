@@ -29,15 +29,17 @@ abstract trait CoreParams {
 abstract class CoreBundle(implicit val p: Parameters) extends Bundle with CoreParams
 
 class CoreIO(implicit p: Parameters) extends CoreBundle()(p) {
-  val done = new AvalonSlaveIO(dataBits = 1, addrBits = 1)
+  // val done = new AvalonSlaveIO(dataBits = 1, addrBits = 1)
+  val gemm_queue = new AvalonSourceIO(dataBits = 128)
 }
 
 class Core(implicit val p: Parameters) extends Module with CoreParams {
   val io = IO(new CoreIO)
-  // val dpath = Module(new Datapath) 
+  val dpath = Module(new Datapath) 
   // val ctrl  = Module(new Control)
 
   // io.done <> dpath.io.done
+  dpath.io.gemm_queue <> io.gemm_queue
   // dpath.io.icache <> io.icache
   // dpath.io.dcache <> io.dcache
   // dpath.io.ctrl <> ctrl.io

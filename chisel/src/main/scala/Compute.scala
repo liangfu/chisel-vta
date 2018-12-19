@@ -5,15 +5,6 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.config.{Parameters, Field}
 
-// case object AvalonKey extends Field[AvalonParameters]
-// case class AvalonParameters(dataBits: Int, addrBits: Int)
-
-// trait HasAvalonParameters {
-//   implicit val p : Parameters
-//   val addrBits = 8
-//   val dataBits = 32
-// }
-
 class AvalonSlaveIO(val dataBits: Int = 32, val addrBits: Int = 1)(implicit p: Parameters) extends CoreBundle()(p) {
   val waitrequest = Output(UInt(1.W))
   val address = Input(UInt(addrBits.W))
@@ -31,18 +22,18 @@ class AvalonSourceIO(val dataBits: Int = 32)(implicit p: Parameters) extends Cor
 
 class ComputeIO(implicit p: Parameters) extends CoreBundle()(p) {
   val done = new AvalonSlaveIO(dataBits = 1, addrBits = 1)
-  val uops = Flipped(new AvalonSourceIO(dataBits = 32))
-  val biases = Flipped(new AvalonSourceIO(dataBits = 512))
-  val gemm_queue = Flipped(new AvalonSourceIO(dataBits = 128))
-  val l2g_dep_queue = Flipped(new AvalonSourceIO(dataBits = 1))
-  val s2g_dep_queue = Flipped(new AvalonSourceIO(dataBits = 1))
-  val g2l_dep_queue = new AvalonSourceIO(dataBits = 1)
-  val g2s_dep_queue = new AvalonSourceIO(dataBits = 1)
-  val inp_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 24))
-  val wgt_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 24))
-  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 24))
-  val uop_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 24))
-  val acc_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 24))
+  val uops = new AvalonSourceIO(dataBits = 32)
+  val biases = new AvalonSourceIO(dataBits = 512)
+  val gemm_queue = new AvalonSourceIO(dataBits = 128)
+  val l2g_dep_queue = new AvalonSourceIO(dataBits = 1)
+  val s2g_dep_queue = new AvalonSourceIO(dataBits = 1)
+  val g2l_dep_queue = Flipped(new AvalonSourceIO(dataBits = 1))
+  val g2s_dep_queue = Flipped(new AvalonSourceIO(dataBits = 1))
+  val inp_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 15))
+  val wgt_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 18))
+  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 17))
+  val uop_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 15))
+  val acc_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 17))
 }
 
 abstract class Compute(implicit val p: Parameters) extends Module with CoreParams {
@@ -50,10 +41,12 @@ abstract class Compute(implicit val p: Parameters) extends Module with CoreParam
 }
 
 class ComputeSimple(implicit p: Parameters) extends Compute()(p) {
+  val core = Module(new Core)
+
   io.done <> DontCare
   io.uops <> DontCare
   io.biases <> DontCare
-  io.gemm_queue <> DontCare
+  io.gemm_queue <> core.io.gemm_queue
   io.l2g_dep_queue <> DontCare
   io.s2g_dep_queue <> DontCare
   io.g2l_dep_queue <> DontCare
