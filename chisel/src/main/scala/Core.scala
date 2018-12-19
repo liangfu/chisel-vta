@@ -29,7 +29,7 @@ abstract trait CoreParams {
 abstract class CoreBundle(implicit val p: Parameters) extends Bundle with CoreParams
 
 class CoreIO(implicit p: Parameters) extends CoreBundle()(p) {
-  val done = new AvalonSlaveIO
+  val done = new AvalonSlaveIO(dataBits = 1, addrBits = 1)
 }
 
 class Core(implicit val p: Parameters) extends Module with CoreParams {
