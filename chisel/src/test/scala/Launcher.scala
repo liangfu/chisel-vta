@@ -8,13 +8,13 @@ import freechips.rocketchip.config.Parameters
 object Launcher {
   implicit val p = (new VTAConfig).toInstance
   val modules = Map(
-      "ALUSimple" -> { (manager: TesterOptionsManager) =>
-        Driver.execute(() => new ALUSimple(), manager) {
+      "ALU" -> { (manager: TesterOptionsManager) =>
+        Driver.execute(() => new ALU(), manager) {
           (c) => new ALUTests(c)
         }
       },
-      "ComputeSimple" -> { (manager: TesterOptionsManager) =>
-        Driver.execute(() => new ComputeSimple(), manager) {
+      "Compute" -> { (manager: TesterOptionsManager) =>
+        Driver.execute(() => new Compute(), manager) {
           (c) => new ComputeTests(c)
         }
       }

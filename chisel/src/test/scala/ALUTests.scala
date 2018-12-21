@@ -7,7 +7,7 @@ import chisel3.testers._
 import chisel3.iotesters.{PeekPokeTester, Driver, ChiselFlatSpec}
 import ALU._
 
-class ALUTests(c: ALUSimple)(implicit val p: freechips.rocketchip.config.Parameters) extends PeekPokeTester(c) {
+class ALUTests(c: ALU)(implicit val p: freechips.rocketchip.config.Parameters) extends PeekPokeTester(c) {
   val xlen = p(XLEN)
   for (n <- 0 until 64) {
     val a      = rnd.nextInt(127)
@@ -34,10 +34,10 @@ class ALUTests(c: ALUSimple)(implicit val p: freechips.rocketchip.config.Paramet
 
 class ALUTester extends ChiselFlatSpec {
   implicit val p = (new VTAConfig).toInstance
-  behavior of "ALUSimple"
+  behavior of "ALU"
   backends foreach {backend =>
     it should s"perform correct math operation on dynamic operand in $backend" in {
-      Driver(() => new ALUSimple(), backend)((c) => new ALUTests(c)) should be (true)
+      Driver(() => new ALU(), backend)((c) => new ALUTests(c)) should be (true)
     }
   }
 }

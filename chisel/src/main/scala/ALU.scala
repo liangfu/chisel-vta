@@ -13,7 +13,7 @@ object ALU {
   val ALU_XXX    = 15.U(4.W)
 }
 
-class ALUIo(implicit p: Parameters) extends CoreBundle()(p) {
+class ALUIO(implicit p: Parameters) extends CoreBundle()(p) {
   val A = Input(UInt(xlen.W))
   val B = Input(UInt(xlen.W))
   val alu_op = Input(UInt(4.W))
@@ -22,11 +22,8 @@ class ALUIo(implicit p: Parameters) extends CoreBundle()(p) {
 
 import ALU._
 
-abstract class ALU(implicit val p: Parameters) extends Module with CoreParams {
-  val io = IO(new ALUIo())
-}
-
-class ALUSimple(implicit p: Parameters) extends ALU()(p) {
+class ALU(implicit val p: Parameters) extends Module with CoreParams {
+  val io = IO(new ALUIO())
   val shamt = io.B(4,0).asUInt
   io.out := MuxLookup(io.alu_op, io.B, Seq(
     ALU_MIN -> Mux(io.A < io.B, io.A, io.B),

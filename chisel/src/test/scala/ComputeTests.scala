@@ -6,18 +6,18 @@ import chisel3.util._
 import chisel3.testers._
 import chisel3.iotesters.{PeekPokeTester, Driver, ChiselFlatSpec}
 
-class ComputeTests(c: ComputeSimple)(implicit val p: freechips.rocketchip.config.Parameters) extends PeekPokeTester(c) {
+class ComputeTests(c: Compute)(implicit val p: freechips.rocketchip.config.Parameters) extends PeekPokeTester(c) {
   val xlen = p(XLEN)
-  for (n <- 0 until 64) {
-  }
+  // for (n <- 0 until 64) {
+  // }
 }
 
 class ComputeTester extends ChiselFlatSpec {
   implicit val p = (new VTAConfig).toInstance
-  behavior of "ComputeSimple"
+  behavior of "Compute"
   backends foreach {backend =>
     it should s"perform correct math operation on dynamic operand in $backend" in {
-      Driver(() => new ComputeSimple(), backend)((c) => new ComputeTests(c)) should be (true)
+      Driver(() => new Compute(), backend)((c) => new ComputeTests(c)) should be (true)
     }
   }
 }
