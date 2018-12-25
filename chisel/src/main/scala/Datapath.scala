@@ -13,4 +13,7 @@ class Datapath(implicit val p: Parameters) extends Module with CoreParams {
 
   val csr = Module(new CSR)
   val alu = p(BuildALU)(p)
+
+  val started = RegNext(reset.toBool)
+  
 }

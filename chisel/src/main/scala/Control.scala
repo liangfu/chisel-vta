@@ -6,18 +6,24 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.config.Parameters
 
+object Control {
+  val Y = true.B
+  val N = false.B
+
+  import ALU._
+}
+
 class ControlSignals(implicit p: Parameters) extends CoreBundle()(p) {
   val done = new AvalonSlaveIO(dataBits = 1, addrBits = 1)
   val uops = new AvalonSourceIO(dataBits = 32)
   val gemm_queue = new AvalonSourceIO(dataBits = 128)
-  val uop_mem = new AvalonMasterIO(dataBits = 64, addrBits = 15)
+  val uop_mem = Flipped(new AvalonSlaveIO(dataBits = 32, addrBits = 15))
 }
 
 class Control(implicit val p: Parameters) extends Module with CoreParams {
   val io = IO(new ControlSignals)
 
   val insn            = Reg(UInt())
-
   when (io.gemm_queue.valid) {
     insn := io.gemm_queue.data
     io.gemm_queue.ready := 1.U
@@ -42,10 +48,16 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   }
 
   io.done.waitrequest := 0.U
+
+  // write to uop_mem
   io.uop_mem.address := 0.U
   io.uop_mem.read := 0.U
-  io.uop_mem.write := 1.U
-  io.uop_mem.writedata := io.uops.data
+  val uop_mem_write = ((opcode === opcode_load.U || opcode === opcode_store.U) &&
+                       (insn(insn_mem_5_1, insn_mem_5_0) === mem_id_uop.U) &&
+                       (!io.uop_mem.waitrequest))
+  io.uop_mem.write := Mux(uop_mem_write, 1.U, 0.U)
+  io.uop_mem.writedata := uops_data
+  io.uop_mem.address := Mux(uop_mem_write, insn(insn_mem_6_1, insn_mem_6_0), 0.U)
 
   when (opcode === opcode_finish.U){
     io.done.readdata := 1.U
@@ -53,23 +65,20 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
     io.done.readdata := 0.U
 
     val memory_type = insn(insn_mem_5_1, insn_mem_5_0)
-    // val sram_base   = insn(insn_mem_6_1, insn_mem_6_0)
-    // val dram_base   = insn(insn_mem_7_1, insn_mem_7_0)
-    // val y_size      = insn(insn_mem_8_1, insn_mem_8_0)
-    // val x_size      = insn(insn_mem_9_1, insn_mem_9_0)
-    // val x_stride    = insn(insn_mem_a_1, insn_mem_a_0)
-    // val y_pad_0     = insn(insn_mem_b_1, insn_mem_b_0)
-    // val y_pad_1     = insn(insn_mem_c_1, insn_mem_c_0)
-    // val x_pad_0     = insn(insn_mem_d_1, insn_mem_d_0)
-    // val x_pad_1     = insn(insn_mem_e_1, insn_mem_e_0) 
+    val sram_base   = insn(insn_mem_6_1, insn_mem_6_0)
+    val dram_base   = insn(insn_mem_7_1, insn_mem_7_0)
+    val y_size      = insn(insn_mem_8_1, insn_mem_8_0)
+    val x_size      = insn(insn_mem_9_1, insn_mem_9_0)
+    val x_stride    = insn(insn_mem_a_1, insn_mem_a_0)
+    val y_pad_0     = insn(insn_mem_b_1, insn_mem_b_0)
+    val y_pad_1     = insn(insn_mem_c_1, insn_mem_c_0)
+    val x_pad_0     = insn(insn_mem_d_1, insn_mem_d_0)
+    val x_pad_1     = insn(insn_mem_e_1, insn_mem_e_0)
 
     when (memory_type === mem_id_uop.U) {
-      // uop_mem[sram_base] = uops.read();
-      when (io.uop_mem.waitrequest) {
-        // TODO
+      when (!io.uop_mem.waitrequest) {
       }
     }
-
   } .elsewhen (opcode === opcode_gemm.U || opcode === opcode_alu.U) {
     io.done.readdata := 0.U
   } .otherwise {

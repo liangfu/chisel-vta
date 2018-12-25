@@ -6,10 +6,42 @@ import chisel3.util._
 import chisel3.testers._
 import chisel3.iotesters.{PeekPokeTester, Driver, ChiselFlatSpec}
 
-class ComputeTests(c: Compute)(implicit val p: freechips.rocketchip.config.Parameters) extends PeekPokeTester(c) {
+class ComputeTests(c: Compute)(implicit val p: freechips.rocketchip.config.Parameters)
+    extends PeekPokeTester(c) with HexUtils {
   val xlen = p(XLEN)
-  // for (n <- 0 until 64) {
-  // }
+
+  val insn0 = "h00000001000100010000000000000000".U
+  val insn1 = "h00000008000800010000000000000180".U
+  val insn2 = "h7ffe4002000008000010000800200044".U
+
+  poke(c.io.gemm_queue.data, 0.U)
+  poke(c.io.gemm_queue.valid, 0.U)
+  poke(c.io.uops.data, 0.U)
+  poke(c.io.uops.valid, 0.U)
+  step(1)
+  poke(c.io.gemm_queue.data, insn0)
+  poke(c.io.gemm_queue.valid, 1.U)
+  poke(c.io.uops.data, "h4000".U)
+  poke(c.io.uops.valid, 1.U)
+  step(1)
+  expect(c.io.uop_mem.writedata, "h4000".U)
+  poke(c.io.gemm_queue.data, 0.U)
+  poke(c.io.gemm_queue.valid, 0.U)
+  poke(c.io.uops.data, 0.U)
+  poke(c.io.uops.valid, 0.U)
+  step(1)
+  poke(c.io.gemm_queue.data, insn1)
+  poke(c.io.gemm_queue.valid, 1.U)
+  step(1)
+  poke(c.io.gemm_queue.data, 0.U)
+  poke(c.io.gemm_queue.valid, 0.U)
+  step(1)
+  poke(c.io.gemm_queue.data, insn2)
+  poke(c.io.gemm_queue.valid, 1.U)
+  step(1)
+  poke(c.io.gemm_queue.data, 0.U)
+  poke(c.io.gemm_queue.valid, 0.U)
+  step(1)
 }
 
 class ComputeTester extends ChiselFlatSpec {

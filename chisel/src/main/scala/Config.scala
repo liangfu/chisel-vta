@@ -9,6 +9,8 @@ import junctions._
 class VTAConfig extends Config((site, here, up) => {
   // Core
   case XLEN => 8
+  case Trace => true
+
   case LOG_INP_WIDTH => 3
   case LOG_WGT_WIDTH => 3
   case LOG_ACC_WIDTH => 5

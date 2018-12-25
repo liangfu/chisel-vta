@@ -4,6 +4,8 @@ import chisel3._
 import freechips.rocketchip.config.{Parameters, Field}
 
 case object XLEN extends Field[Int]
+case object Trace extends Field[Boolean]
+
 case object LOG_INP_WIDTH extends Field[Int]
 case object LOG_WGT_WIDTH extends Field[Int]
 case object LOG_ACC_WIDTH extends Field[Int]
@@ -75,6 +77,24 @@ abstract trait CoreParams {
   val insn_mem_4 = insn_mem_3 + 1
   val insn_mem_5_0 = insn_mem_4 + 1
   val insn_mem_5_1 = insn_mem_5_0 + memop_id_bit_width - 1
+  val insn_mem_6_0 = insn_mem_5_1 + 1
+  val insn_mem_6_1 = insn_mem_6_0 + memop_sram_addr_bit_width - 1
+  val insn_mem_7_0 = insn_mem_6_1 + 1
+  val insn_mem_7_1 = insn_mem_7_0 + memop_dram_addr_bit_width - 1
+  val insn_mem_8_0 = insn_mem_7_1 + 1
+  val insn_mem_8_1 = insn_mem_8_0 + memop_size_bit_width - 1
+  val insn_mem_9_0 = insn_mem_8_1 + 1
+  val insn_mem_9_1 = insn_mem_9_0 + memop_size_bit_width - 1
+  val insn_mem_a_0 = insn_mem_9_1 + 1
+  val insn_mem_a_1 = insn_mem_a_0 + memop_stride_bit_width - 1
+  val insn_mem_b_0 = insn_mem_a_1 + 1
+  val insn_mem_b_1 = insn_mem_b_0 + memop_pad_bit_width - 1
+  val insn_mem_c_0 = insn_mem_b_1 + 1
+  val insn_mem_c_1 = insn_mem_c_0 + memop_pad_bit_width - 1
+  val insn_mem_d_0 = insn_mem_c_1 + 1
+  val insn_mem_d_1 = insn_mem_d_0 + memop_pad_bit_width - 1
+  val insn_mem_e_0 = insn_mem_d_1 + 1
+  val insn_mem_e_1 = insn_mem_e_0 + memop_pad_bit_width - 1
 }
 
 abstract class CoreBundle(implicit val p: Parameters) extends Bundle with CoreParams
@@ -83,7 +103,7 @@ class CoreIO(implicit p: Parameters) extends CoreBundle()(p) {
   val done = new AvalonSlaveIO(dataBits = 1, addrBits = 1)
   val uops = new AvalonSourceIO(dataBits = 32)
   val gemm_queue = new AvalonSourceIO(dataBits = 128)
-  val uop_mem = new AvalonMasterIO(dataBits = 64, addrBits = 15)
+  val uop_mem = Flipped(new AvalonSlaveIO(dataBits = 32, addrBits = 15))
 }
 
 class Core(implicit val p: Parameters) extends Module with CoreParams {

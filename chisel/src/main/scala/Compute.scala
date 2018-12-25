@@ -13,15 +13,6 @@ class AvalonSlaveIO(val dataBits: Int = 32, val addrBits: Int = 1)(implicit p: P
   val write = Input(Bool())
   val writedata = Input(UInt(dataBits.W))
 }
-
-class AvalonMasterIO(val dataBits: Int = 32, val addrBits: Int = 1)(implicit p: Parameters) extends CoreBundle()(p) {
-  val waitrequest = Input(Bool())
-  val address = Output(UInt(addrBits.W))
-  val read = Output(Bool())
-  val readdata = Input(UInt(dataBits.W))
-  val write = Output(Bool())
-  val writedata = Output(UInt(dataBits.W))
-}
   
 class AvalonSourceIO(val dataBits: Int = 32)(implicit p: Parameters) extends CoreBundle()(p) {
   val ready = Output(Bool())
@@ -38,14 +29,15 @@ class ComputeIO(implicit p: Parameters) extends CoreBundle()(p) {
   val s2g_dep_queue = new AvalonSourceIO(dataBits = 1)
   val g2l_dep_queue = Flipped(new AvalonSourceIO(dataBits = 1))
   val g2s_dep_queue = Flipped(new AvalonSourceIO(dataBits = 1))
-  val inp_mem = new AvalonMasterIO(dataBits = 64, addrBits = 15)
-  val wgt_mem = new AvalonMasterIO(dataBits = 64, addrBits = 18)
-  val out_mem = new AvalonMasterIO(dataBits = 64, addrBits = 17)
-  val uop_mem = new AvalonMasterIO(dataBits = 64, addrBits = 15)
-  val acc_mem = new AvalonMasterIO(dataBits = 64, addrBits = 17)
+  val inp_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 15))
+  val wgt_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 18))
+  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 17))
+  val uop_mem = Flipped(new AvalonSlaveIO(dataBits = 32, addrBits = 15))
+  val acc_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 17))
 }
 
 class Compute(implicit val p: Parameters) extends Module with CoreParams {
+  // implicit val p = params
   val io = IO(new ComputeIO())
   val core = Module(new Core)
 
