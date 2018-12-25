@@ -1,7 +1,5 @@
 val commonSettings = Seq(
   scalaVersion := "2.12.8",
-  ensimeScalaVersion := "2.12.8",
-  ensimeIgnoreScalaMismatch := true,
   libraryDependencies ++= Seq(
     "edu.berkeley.cs" %% "chisel3" % "3.1.0",
     "edu.berkeley.cs" %% "chisel-iotesters" % "1.2.+",
