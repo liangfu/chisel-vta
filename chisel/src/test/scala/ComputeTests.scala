@@ -7,7 +7,7 @@ import chisel3.testers._
 import chisel3.iotesters.{PeekPokeTester, Driver, ChiselFlatSpec}
 
 class ComputeTests(c: Compute)(implicit val p: freechips.rocketchip.config.Parameters)
-    extends PeekPokeTester(c) with HexUtils {
+    extends PeekPokeTester(c) {
   val xlen = p(XLEN)
 
   val insn0 = "h00000001000100010000000000000000".U
