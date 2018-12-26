@@ -5,6 +5,7 @@ import freechips.rocketchip.config.{Parameters, Field}
 
 case object XLEN extends Field[Int]
 case object Trace extends Field[Boolean]
+case object BuildALU extends Field[Parameters => ALU]
 
 case object LOG_INP_WIDTH extends Field[Int]
 case object LOG_WGT_WIDTH extends Field[Int]
@@ -13,30 +14,28 @@ case object LOG_OUT_WIDTH extends Field[Int]
 case object LOG_BATCH extends Field[Int]
 case object LOG_BLOCK_IN extends Field[Int]
 case object LOG_BLOCK_OUT extends Field[Int]
-case object BuildALU extends Field[Parameters => ALU]
-
-case object OPCODE_BIT_WIDTH extends Field[Int]
-
-case object OPCODE_LOAD extends Field[Int]
-case object OPCODE_STORE extends Field[Int]
-case object OPCODE_GEMM extends Field[Int]
-case object OPCODE_FINISH extends Field[Int]
-case object OPCODE_ALU extends Field[Int]
-
-case object ALU_OPCODE_MIN extends Field[Int]
-case object ALU_OPCODE_MAX extends Field[Int]
-case object ALU_OPCODE_ADD extends Field[Int]
-case object ALU_OPCODE_SHR extends Field[Int]
-
+case object LOG_UOP_BUFF_SIZE extends Field[Int]
+case object LOG_INP_BUFF_SIZE extends Field[Int]
+case object LOG_WGT_BUFF_SIZE extends Field[Int]
+case object LOG_ACC_BUFF_SIZE extends Field[Int]
 
 abstract trait CoreParams {
   implicit val p: Parameters
   val xlen = p(XLEN)
 
+  val log_uop_buff_size = p(LOG_UOP_BUFF_SIZE)
+  val log_inp_buff_size = p(LOG_INP_BUFF_SIZE)
+  val log_wgt_buff_size = p(LOG_WGT_BUFF_SIZE)
+  val log_acc_buff_size = p(LOG_ACC_BUFF_SIZE)
+
+  val log_batch = p(LOG_BATCH)
+  val log_block_in = p(LOG_BLOCK_IN)
+  val log_block_out = p(LOG_BLOCK_OUT)
   val batch = 1 << p(LOG_BATCH)
   val block_in = 1 << p(LOG_BLOCK_IN)
   val block_out = 1 << p(LOG_BLOCK_OUT)
 
+  val log_uop_width = 5
   val log_inp_width = p(LOG_INP_WIDTH)
   val log_wgt_width = p(LOG_WGT_WIDTH)
   val log_acc_width = p(LOG_ACC_WIDTH)
@@ -56,6 +55,7 @@ abstract trait CoreParams {
   val memop_pad_bit_width = 4
   val memop_pad_val_bit_width = 2
   val aluop_imm_bit_width = 16
+  val loop_iter_width = 14
 
   val mem_id_uop = 0
   val mem_id_wgt = 1
@@ -63,16 +63,21 @@ abstract trait CoreParams {
   val mem_id_acc = 3
   val mem_id_out = 4
 
-  val opcode_load = p(OPCODE_LOAD)
-  val opcode_store = p(OPCODE_STORE)
-  val opcode_gemm = p(OPCODE_GEMM)
-  val opcode_finish = p(OPCODE_FINISH)
-  val opcode_alu = p(OPCODE_ALU)
+  val opcode_load = 0
+  val opcode_store = 1
+  val opcode_gemm = 2
+  val opcode_finish = 3
+  val opcode_alu = 4
 
-  val alu_opcode_min = p(ALU_OPCODE_MIN)
-  val alu_opcode_max = p(ALU_OPCODE_MAX)
-  val alu_opcode_add = p(ALU_OPCODE_ADD)
-  val alu_opcode_shr = p(ALU_OPCODE_SHR)
+  val alu_opcode_min = 0
+  val alu_opcode_max = 1
+  val alu_opcode_add = 2
+  val alu_opcode_shr = 3
+
+  val log_uop_buff_depth = log_uop_buff_size - log_uop_width + 3
+  val log_wgt_buff_depth = log_wgt_buff_size - log_block_out - log_block_in - log_wgt_width + 3
+  val log_inp_buff_depth = log_inp_buff_size - log_batch - log_block_in - log_inp_width + 3
+  val log_acc_buff_depth = log_acc_buff_size - log_batch - log_block_out - log_acc_width + 3
 
   val insn_mem_0_0 = 0
   val insn_mem_0_1 = opcode_bit_width - 1
@@ -100,6 +105,45 @@ abstract trait CoreParams {
   val insn_mem_d_1 = insn_mem_d_0 + memop_pad_bit_width - 1
   val insn_mem_e_0 = insn_mem_d_1 + 1
   val insn_mem_e_1 = insn_mem_e_0 + memop_pad_bit_width - 1
+
+  val insn_gem_0_0 = 0
+  val insn_gem_0_1 = opcode_bit_width - 1
+  val insn_gem_1 = insn_gem_0_1 + 1
+  val insn_gem_2 = insn_gem_1 + 1
+  val insn_gem_3 = insn_gem_2 + 1
+  val insn_gem_4 = insn_gem_3 + 1
+  val insn_gem_5 = insn_gem_4 + 1
+  val insn_gem_6_0 = insn_gem_5 + 1
+  val insn_gem_6_1 = insn_gem_6_0 + log_uop_buff_depth - 1
+  val insn_gem_7_0 = insn_gem_6_1 + 1
+  val insn_gem_7_1 = insn_gem_7_0 + log_uop_buff_depth
+  val insn_gem_8_0 = insn_gem_7_1 + 1
+  val insn_gem_8_1 = insn_gem_8_0 + loop_iter_width - 1
+  val insn_gem_9_0 = insn_gem_8_1 + 1
+  val insn_gem_9_1 = insn_gem_9_0 + loop_iter_width - 1
+  val insn_gem_a_0 = 64
+  val insn_gem_a_1 = insn_gem_a_0 + log_acc_buff_depth - 1
+  val insn_gem_b_0 = insn_gem_a_1 + 1
+  val insn_gem_b_1 = insn_gem_b_0 + log_acc_buff_depth - 1
+  val insn_gem_c_0 = insn_gem_b_1 + 1
+  val insn_gem_c_1 = insn_gem_c_0 + log_inp_buff_depth - 1
+  val insn_gem_d_0 = insn_gem_c_1 + 1
+  val insn_gem_d_1 = insn_gem_d_0 + log_inp_buff_depth - 1
+  val insn_gem_e_0 = insn_gem_d_1 + 1
+  val insn_gem_e_1 = insn_gem_e_0 + log_wgt_buff_depth - 1
+  val insn_gem_f_0 = insn_gem_e_1 + 1
+  val insn_gem_f_1 = insn_gem_f_0 + log_wgt_buff_depth - 1
+
+  val insn_alu_e_0 = insn_gem_d_1 + 1
+  val insn_alu_e_1 = insn_alu_e_0 + alu_opcode_bit_width - 1
+  val insn_alu_f = insn_alu_e_1 + 1
+  val insn_alu_g_0 = insn_alu_f + 1
+  val insn_alu_g_1 = insn_alu_g_0 + aluop_imm_bit_width - 1
+
+  val uop_alu_0_0 = 0
+  val uop_alu_0_1 = uop_alu_0_0 + log_acc_buff_depth - 1
+  val uop_alu_1_0 = uop_alu_0_1
+  val uop_alu_1_1 = uop_alu_1_0 + log_inp_buff_depth - 1
 }
 
 abstract class CoreBundle(implicit val p: Parameters) extends Bundle with CoreParams

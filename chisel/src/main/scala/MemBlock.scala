@@ -26,6 +26,10 @@ class MemBlock(val addrBits : Int, val dataBits : Int, val bypass : Boolean = tr
 
   // write
   when (io.write === 1.U) {
+    printf(p"--------------------------------\n")
+    printf(p"    io.address = ${Hexadecimal(io.address)}\n")
+    printf(p"    io.writedata = ${Hexadecimal(io.writedata)}\n")
+    printf(p"--------------------------------\n")
     mem(io.address) := io.writedata
   }
 

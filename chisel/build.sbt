@@ -17,5 +17,5 @@ val vtaSettings = commonSettings ++ Seq(
   version := "0.1-SNAPSHOT",
   organization := "org.liangfu")
 
-lazy val lib  = project settings commonSettings
+lazy val lib = project settings commonSettings
 lazy val vta = project in file(".") settings vtaSettings dependsOn lib
