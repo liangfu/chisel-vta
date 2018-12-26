@@ -31,9 +31,7 @@ class ComputeIO(implicit p: Parameters) extends CoreBundle()(p) {
   val g2s_dep_queue = Flipped(new AvalonSourceIO(dataBits = 1))
   val inp_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 15))
   val wgt_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 18))
-  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 17))
-  val uop_mem = Flipped(new AvalonSlaveIO(dataBits = 32, addrBits = 15))
-  val acc_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 17))
+  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 512, addrBits = 17))
 }
 
 class Compute(implicit val p: Parameters) extends Module with CoreParams {
@@ -43,7 +41,7 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
 
   io.done <> core.io.done
   io.uops <> core.io.uops
-  io.biases <> DontCare
+  io.biases <> core.io.biases
   io.gemm_queue <> core.io.gemm_queue
   io.l2g_dep_queue <> DontCare
   io.s2g_dep_queue <> DontCare
@@ -51,8 +49,8 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   io.g2s_dep_queue <> DontCare
   io.inp_mem <> DontCare
   io.wgt_mem <> DontCare
-  io.out_mem <> DontCare
-  io.uop_mem <> core.io.uop_mem
-  io.acc_mem <> DontCare
+  io.out_mem <> core.io.out_mem
+  // io.uop_mem <> core.io.uop_mem
+  // io.acc_mem <> DontCare
 }
 

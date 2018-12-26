@@ -32,6 +32,11 @@ case object ALU_OPCODE_SHR extends Field[Int]
 abstract trait CoreParams {
   implicit val p: Parameters
   val xlen = p(XLEN)
+
+  val batch = 1 << p(LOG_BATCH)
+  val block_in = 1 << p(LOG_BLOCK_IN)
+  val block_out = 1 << p(LOG_BLOCK_OUT)
+
   val log_inp_width = p(LOG_INP_WIDTH)
   val log_wgt_width = p(LOG_WGT_WIDTH)
   val log_acc_width = p(LOG_ACC_WIDTH)
@@ -81,7 +86,7 @@ abstract trait CoreParams {
   val insn_mem_6_1 = insn_mem_6_0 + memop_sram_addr_bit_width - 1
   val insn_mem_7_0 = insn_mem_6_1 + 1
   val insn_mem_7_1 = insn_mem_7_0 + memop_dram_addr_bit_width - 1
-  val insn_mem_8_0 = insn_mem_7_1 + 1
+  val insn_mem_8_0 = 64
   val insn_mem_8_1 = insn_mem_8_0 + memop_size_bit_width - 1
   val insn_mem_9_0 = insn_mem_8_1 + 1
   val insn_mem_9_1 = insn_mem_9_0 + memop_size_bit_width - 1
@@ -102,20 +107,30 @@ abstract class CoreBundle(implicit val p: Parameters) extends Bundle with CorePa
 class CoreIO(implicit p: Parameters) extends CoreBundle()(p) {
   val done = new AvalonSlaveIO(dataBits = 1, addrBits = 1)
   val uops = new AvalonSourceIO(dataBits = 32)
+  val biases = new AvalonSourceIO(dataBits = 512)
   val gemm_queue = new AvalonSourceIO(dataBits = 128)
-  val uop_mem = Flipped(new AvalonSlaveIO(dataBits = 32, addrBits = 15))
+  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 512, addrBits = 17))
 }
 
 class Core(implicit val p: Parameters) extends Module with CoreParams {
   val io = IO(new CoreIO)
   // val dpath = Module(new Datapath) 
   val ctrl  = Module(new Control)
+  val uop_mem = Module(new MemBlock(dataBits = 32, addrBits = 15))
+  val acc_mem = Module(new MemBlock(dataBits = 512, addrBits = 17))
 
   // dpath.io.gemm_queue <> io.gemm_queue
   ctrl.io.done <> io.done
   ctrl.io.uops <> io.uops
+  ctrl.io.biases <> io.biases
   ctrl.io.gemm_queue <> io.gemm_queue
-  ctrl.io.uop_mem <> io.uop_mem
+  ctrl.io.out_mem <> io.out_mem
+
+  // connect to block RAM
+  ctrl.io.uop_mem <> uop_mem.io
+  ctrl.io.acc_mem <> acc_mem.io
+
+  // ctrl.io.uop_mem <> uop_mem
   // dpath.io.icache <> io.icache
   // dpath.io.dcache <> io.dcache
   // dpath.io.ctrl <> ctrl.io
