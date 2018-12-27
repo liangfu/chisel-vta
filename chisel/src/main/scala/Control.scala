@@ -130,23 +130,26 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   io.acc_mem.address := Mux(acc_mem_read_cntr_val === 0.U, dst_idx, src_idx)
   val dst_vector = io.acc_mem.readdata
   val src_vector = io.acc_mem.readdata
-  // val cmp_res = Reg(UInt())
-  // val short_cmp_res = Reg(UInt())
+  val cmp_res = Reg(Vec(block_out, UInt(acc_width.W)))
+  val short_cmp_res = Reg(Vec(block_out, UInt(out_width.W)))
 
   val alu_block_cntr_en = opcode_alu_en
   val (alu_block_cntr_val, alu_block_cntr_wrap) = Counter(alu_block_cntr_en, 16)
   val b = alu_block_cntr_val
 
-  // val src_0 = dst_vector((b + 1) * acc_width - 1, b * acc_width)
-  // val src_1 = Mux(use_imm, imm, src_vector((b + 1) * acc_width - 1, b * acc_width))
-  // val mix_val = Mux(src_0 < src_1, Mux(alu_opcode === alu_opcode_min, src_0, src_1),
-  //                                  Mux(alu_opcode === alu_opcode_min, src_1, src_0))
-  // cmp_res((b + 1) * acc_width_width - 1, b * acc_width) := mix_val
+  val src_0 = ((dst_vector >> (b * acc_width.U)) & ((1.U << acc_width.U) - 1.U))(acc_width - 1, 0)
+  val src_1 = Mux(use_imm, imm,
+    ((src_vector >> (b * acc_width.U)) & ((1.U << acc_width.U) - 1.U))(acc_width - 1, 0) )
+  val mix_val = Mux(src_0 < src_1, Mux(alu_opcode === alu_opcode_min.U, src_0, src_1),
+                                   Mux(alu_opcode === alu_opcode_min.U, src_1, src_0))
+  val mix_val_reg = RegNext(mix_val)
+  cmp_res(b) := mix_val_reg
+  short_cmp_res(b) := ((mix_val_reg) & ((1.U << out_width.U) - 1.U))(out_width - 1, 0)
 
-  io.out_mem.address := 0.U
+  io.out_mem.address := dst_idx
   io.out_mem.read := 0.U
-  io.out_mem.write := 0.U
-  io.out_mem.writedata := 0.U
+  io.out_mem.write := (opcode_alu_en && alu_block_cntr_en && alu_block_cntr_wrap)
+  io.out_mem.writedata := Cat(short_cmp_res.init)
   when ((insn =/= 0.U) && in_loop_cntr_en) {
     printf(p"iter_out = 0x${Hexadecimal(iter_out)}\n")
     printf(p"iter_in = 0x${Hexadecimal(iter_in)}\n")
@@ -161,6 +164,11 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
     printf(p"src_idx = 0x${Hexadecimal(src_idx)}\n")
     printf(p"dst_vector = 0x${Hexadecimal(dst_vector)}\n")
     printf(p"src_vector = 0x${Hexadecimal(src_vector)}\n")
+    printf(p"src_0 = 0x${Hexadecimal(src_0)}\n")
+    printf(p"src_0.getWidth = 0x${Hexadecimal(src_0.getWidth.U)}\n")
+    printf(p"acc_width = 0x${Hexadecimal(acc_width.U)}\n")
+    printf(p"out_width = 0x${Hexadecimal(out_width.U)}\n")
+    printf(p"io.out_mem.writedata = 0x${Hexadecimal(io.out_mem.writedata)}\n")
   }
   when (insn =/= 0.U) {
     printf(p"=======================================\n")
