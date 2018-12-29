@@ -13,10 +13,10 @@ import freechips.rocketchip.config.Parameters
 
 class MemBlockIO(val addrBits : Int, val dataBits : Int) extends Bundle {
   val waitrequest = Output(Bool())
+  val address = Input(UInt(addrBits.W))
   val read  = Input(Bool())
   val readdata = Output(UInt(dataBits.W))
-  val address = Input(UInt(addrBits.W))
-  val write  = Input(Bool())
+  val write  = Input(UInt(1.W))
   val writedata = Input(UInt(dataBits.W))
 }
 
@@ -34,13 +34,13 @@ class MemBlock(val addrBits : Int, val dataBits : Int, val bypass : Boolean = tr
   }
 
   // read
-  val addrreg = RegNext(io.address)
-  io.readdata := mem(addrreg)
+  val readdata_reg = RegNext(mem(io.address))
+  io.readdata := readdata_reg
   io.waitrequest := 0.U
 
   if (bypass) {
     // force read during write behavior
-    when (RegNext(io.write) === 1.U && RegNext(io.address) === addrreg) {
+    when (RegNext(io.write) === 1.U && RegNext(io.read) === 1.U) {
       io.readdata := RegNext(io.writedata)
     }
   }

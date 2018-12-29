@@ -161,7 +161,7 @@ class Core(implicit val p: Parameters) extends Module with CoreParams {
   // val dpath = Module(new Datapath) 
   val ctrl  = Module(new Control)
   val uop_mem = Module(new MemBlock(dataBits = 32, addrBits = 15))
-  val acc_mem = Module(new MemBlock(dataBits = 512, addrBits = 17))
+  // val acc_mem = Module(new MemBlock(dataBits = 512, addrBits = 17))
 
   // dpath.io.gemm_queue <> io.gemm_queue
   ctrl.io.done <> io.done
@@ -172,7 +172,7 @@ class Core(implicit val p: Parameters) extends Module with CoreParams {
 
   // connect to block RAM
   ctrl.io.uop_mem <> uop_mem.io
-  ctrl.io.acc_mem <> acc_mem.io
+  // ctrl.io.acc_mem <> acc_mem.io
 
   // ctrl.io.uop_mem <> uop_mem
   // dpath.io.icache <> io.icache

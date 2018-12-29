@@ -11,6 +11,9 @@ object Control {
   val N = false.B
 
   import ALU._
+
+  // def Slice = (d: UInt, x: UInt, w: Int) => ((d >> (x)) & ((1.U << w.U) - 1.U))(w - 1, 0)
+  def Slice = (d: UInt, x: UInt, w: Int) => (d >> (x))(w - 1, 0)
 }
 
 class ControlSignals(implicit p: Parameters) extends CoreBundle()(p) {
@@ -20,13 +23,17 @@ class ControlSignals(implicit p: Parameters) extends CoreBundle()(p) {
   val gemm_queue = new AvalonSourceIO(dataBits = 128)
   val out_mem = Flipped(new AvalonSlaveIO(dataBits = 512, addrBits = 17))
   val uop_mem = Flipped(new AvalonSlaveIO(dataBits = 32, addrBits = 15))
-  val acc_mem = Flipped(new AvalonSlaveIO(dataBits = 512, addrBits = 17))
+  // val acc_mem = Flipped(new AvalonSlaveIO(dataBits = 512, addrBits = 17))
 }
 
 class Control(implicit val p: Parameters) extends Module with CoreParams {
   val io = IO(new ControlSignals)
 
-  val insn            = Reg(UInt())
+  val acc_mem = Mem(1 << 17, UInt(512.W))
+
+  import Control._
+
+  val insn            = Reg(UInt(128.W))
   when (io.gemm_queue.valid) {
     insn := io.gemm_queue.data
     io.gemm_queue.ready := 1.U
@@ -41,7 +48,7 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   val push_prev_dep   = insn(insn_mem_3)
   val push_next_dep   = insn(insn_mem_4)
 
-  val uops_data       = Reg(UInt())
+  val uops_data       = Reg(UInt(32.W))
   when (io.uops.valid) {
     uops_data := io.uops.data
     io.uops.ready := 1.U
@@ -91,19 +98,20 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   io.uop_mem.address := Mux(uop_mem_write_en, insn(insn_mem_6_1, insn_mem_6_0), 0.U)
 
   // write to acc_mem
-  val acc_cntr_en = (opcode_load_en && (memory_type === mem_id_acc.U) &&
-                     io.biases.valid && (!io.acc_mem.waitrequest))
+  val acc_cntr_en = (opcode_load_en && (memory_type === mem_id_acc.U) && io.biases.valid)
   val (acc_x_cntr_val, acc_x_cntr_wrap) = Counter(acc_cntr_en, 8)
+  val acc_mem_addr = ((sram_idx + y_offset) * batch.U + acc_x_cntr_val)
+  when (acc_cntr_en) {
+    acc_mem(acc_mem_addr) := io.biases.data
+  }
   io.biases.ready := acc_cntr_en
-  io.acc_mem.address := ((sram_idx + y_offset) * batch.U + acc_x_cntr_val)
-  io.acc_mem.read := 0.U
-  io.acc_mem.write := acc_cntr_en
-  io.acc_mem.writedata := io.biases.data
   when ((insn =/= 0.U) && acc_cntr_en) {
     printf(p"y_size = 0x${Hexadecimal(y_size)}\n")
     printf(p"x_size = 0x${Hexadecimal(x_size)}\n")
+    printf(p"acc_cntr_en = 0x${Hexadecimal(acc_cntr_en)}\n")
     printf(p"acc_x_cntr_val = 0x${Hexadecimal(acc_x_cntr_val)}\n")
     printf(p"acc_x_cntr_wrap = 0x${Hexadecimal(acc_x_cntr_wrap)}\n")
+    printf(p"acc_mem_addr = 0x${Hexadecimal(acc_mem_addr)}\n")
     printf(p"io.biases.data = 0x${Hexadecimal(io.biases.data)}\n")
   }
 
@@ -115,41 +123,53 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   val alu_opcode = insn(insn_alu_e_1, insn_alu_e_0)
   val use_imm = insn(insn_alu_f)
   val imm = insn(insn_alu_g_1, insn_alu_g_0)
-  val in_loop_cntr_en = opcode_alu_en
+  val in_loop_cntr_en = opcode_alu_en || opcode_gemm_en
   val (in_loop_cntr_val, in_loop_cntr_wrap) = Counter(in_loop_cntr_en, 8)
+  val it_in = in_loop_cntr_val
 
   val upc = 0.U
   io.uop_mem.address := upc
   io.uop_mem.read := 1.U
-  val uop = RegInit(io.uop_mem.readdata)
-  val dst_idx = uop(uop_alu_0_1, uop_alu_0_0)
-  val src_idx = uop(uop_alu_1_1, uop_alu_1_0)
+  val uop = io.uop_mem.readdata
+  val dst_offset_in = it_in
+  val src_offset_in = it_in
+  val dst_idx = uop(uop_alu_0_1, uop_alu_0_0) + dst_offset_in
+  val src_idx = uop(uop_alu_1_1, uop_alu_1_0) + src_offset_in
 
-  val acc_mem_read_cntr_en = opcode_alu_en
-  val (acc_mem_read_cntr_val, acc_mem_read_cntr_wrap) = Counter(acc_mem_read_cntr_en, 2)
-  io.acc_mem.address := Mux(acc_mem_read_cntr_val === 0.U, dst_idx, src_idx)
-  val dst_vector = io.acc_mem.readdata
-  val src_vector = io.acc_mem.readdata
-  val cmp_res = Reg(Vec(block_out, UInt(acc_width.W)))
-  val short_cmp_res = Reg(Vec(block_out, UInt(out_width.W)))
+  val dst_vector = acc_mem(dst_idx)
+  val src_vector = acc_mem(src_idx)
+  val cmp_res = Wire(Vec(block_out, UInt(acc_width.W)))
+  val short_cmp_res = Wire(Vec(block_out, UInt(out_width.W)))
 
-  val alu_block_cntr_en = opcode_alu_en
-  val (alu_block_cntr_val, alu_block_cntr_wrap) = Counter(alu_block_cntr_en, 16)
-  val b = alu_block_cntr_val
+  for (i <- 0 to (block_out - 1)) {
+    cmp_res(i) := 0.U
+    short_cmp_res(i) := 0.U
+  }
 
-  val src_0 = ((dst_vector >> (b * acc_width.U)) & ((1.U << acc_width.U) - 1.U))(acc_width - 1, 0)
-  val src_1 = Mux(use_imm, imm,
-    ((src_vector >> (b * acc_width.U)) & ((1.U << acc_width.U) - 1.U))(acc_width - 1, 0) )
-  val mix_val = Mux(src_0 < src_1, Mux(alu_opcode === alu_opcode_min.U, src_0, src_1),
-                                   Mux(alu_opcode === alu_opcode_min.U, src_1, src_0))
-  val mix_val_reg = RegNext(mix_val)
-  cmp_res(b) := mix_val_reg
-  short_cmp_res(b) := ((mix_val_reg) & ((1.U << out_width.U) - 1.U))(out_width - 1, 0)
+  // loop unroll
+  when ((insn =/= 0.U) && in_loop_cntr_en) {
+  for (b <- 0 to (block_out - 1)) {
+    val src_0 = Slice(dst_vector, (b * acc_width).U, acc_width).asSInt
+    val src_1 = Mux(use_imm, imm, Slice(src_vector, (b * acc_width).U, acc_width)).asSInt
+    val mix_val = Mux(src_0 < src_1, Mux(alu_opcode === alu_opcode_min.U, src_0, src_1),
+                                     Mux(alu_opcode === alu_opcode_min.U, src_1, src_0))
+    cmp_res(b) := mix_val.asUInt
+    short_cmp_res(b) := Slice(mix_val.asUInt, 0.U, out_width - 1)
+    // printf(p"+---src_0 = 0x${Hexadecimal(src_0)}\n")
+    // printf(p"|   src_1 = 0x${Hexadecimal(src_1)}\n")
+    // printf(p"|   mix_val = 0x${Hexadecimal(mix_val.asUInt)}\n")
+  }
+  }
 
   io.out_mem.address := dst_idx
   io.out_mem.read := 0.U
-  io.out_mem.write := (opcode_alu_en && alu_block_cntr_en && alu_block_cntr_wrap)
-  io.out_mem.writedata := Cat(short_cmp_res.init)
+  io.out_mem.write := opcode_alu_en
+  io.out_mem.writedata := Cat(short_cmp_res.init.reverse)
+
+  // when (in_loop_cntr_en) {
+  //   acc_mem(dst_idx) := cmp_res
+  // }
+
   when ((insn =/= 0.U) && in_loop_cntr_en) {
     printf(p"iter_out = 0x${Hexadecimal(iter_out)}\n")
     printf(p"iter_in = 0x${Hexadecimal(iter_in)}\n")
@@ -164,11 +184,12 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
     printf(p"src_idx = 0x${Hexadecimal(src_idx)}\n")
     printf(p"dst_vector = 0x${Hexadecimal(dst_vector)}\n")
     printf(p"src_vector = 0x${Hexadecimal(src_vector)}\n")
-    printf(p"src_0 = 0x${Hexadecimal(src_0)}\n")
-    printf(p"src_0.getWidth = 0x${Hexadecimal(src_0.getWidth.U)}\n")
+    printf(p"use_imm = 0x${Hexadecimal(use_imm)}\n")
+    printf(p"imm = 0x${Hexadecimal(imm)}\n")
     printf(p"acc_width = 0x${Hexadecimal(acc_width.U)}\n")
     printf(p"out_width = 0x${Hexadecimal(out_width.U)}\n")
-    printf(p"io.out_mem.writedata = 0x${Hexadecimal(io.out_mem.writedata)}\n")
+    printf(p"cmp_res = 0x${Hexadecimal(Cat(cmp_res.init))}\n")
+    printf(p"short_cmp_res = 0x${Hexadecimal(Cat(short_cmp_res.init))}\n")
   }
   when (insn =/= 0.U) {
     printf(p"=======================================\n")
