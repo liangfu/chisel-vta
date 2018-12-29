@@ -32,6 +32,7 @@ class ComputeTests(c: Compute)(implicit val p: freechips.rocketchip.config.Param
   poke(c.io.biases.data, "h0000".U)
   step(1)
   expect(c.io.biases.ready, 1.U)
+  poke(c.io.gemm_queue.data, insn2)
   poke(c.io.biases.data, "h1111".U)
   step(1)
   poke(c.io.biases.data, "h2222".U)
