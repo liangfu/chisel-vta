@@ -78,16 +78,16 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   // status
   val started = 1.U(1.W)
   val busy = Mux(opcode_load_en && memory_type_uop_en, 0.U,
-             Mux(acc_cntr_en && (acc_x_cntr_wrap =/= 1.U), 1.U, 
-             Mux(in_loop_cntr_en && (in_loop_cntr_wrap =/= 1.U), 1.U, 0.U)))
+             Mux(acc_cntr_en && !acc_x_cntr_wrap, 1.U, 
+             Mux(in_loop_cntr_en && !in_loop_cntr_wrap, 1.U, 0.U)))
   val done = 1.U(1.W)
 
   // fetch instruction
-  when (io.gemm_queue.valid && (busy === 0.U)) {
+  when (io.gemm_queue.valid && !busy) {
     insn := io.gemm_queue.data
     io.gemm_queue.ready := 1.U
   } .otherwise {
-    insn := io.gemm_queue.data
+    insn := insn
     io.gemm_queue.ready := 0.U
   }
 
@@ -224,8 +224,8 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
     printf(p"imm = 0x${Hexadecimal(imm)}\n")
     printf(p"acc_width = 0x${Hexadecimal(acc_width.U)}\n")
     printf(p"out_width = 0x${Hexadecimal(out_width.U)}\n")
-    printf(p"cmp_res = 0x${Hexadecimal(Cat(cmp_res.init))}\n")
-    printf(p"short_cmp_res = 0x${Hexadecimal(Cat(short_cmp_res.init))}\n")
+    printf(p"cmp_res = 0x${Hexadecimal(Cat(cmp_res.init.reverse))}\n")
+    printf(p"short_cmp_res = 0x${Hexadecimal(Cat(short_cmp_res.init.reverse))}\n")
   }
   when (insn =/= 0.U) {
     printf(p"=======================================\n")

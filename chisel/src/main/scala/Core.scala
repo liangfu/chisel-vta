@@ -142,7 +142,7 @@ abstract trait CoreParams {
 
   val uop_alu_0_0 = 0
   val uop_alu_0_1 = uop_alu_0_0 + log_acc_buff_depth - 1
-  val uop_alu_1_0 = uop_alu_0_1
+  val uop_alu_1_0 = uop_alu_0_1 + 1
   val uop_alu_1_1 = uop_alu_1_0 + log_inp_buff_depth - 1
 }
 
