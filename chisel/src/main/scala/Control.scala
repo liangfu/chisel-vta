@@ -21,7 +21,7 @@ class ControlSignals(implicit p: Parameters) extends CoreBundle()(p) {
   val uops = new AvalonSourceIO(dataBits = 32)
   val biases = new AvalonSourceIO(dataBits = 512)
   val gemm_queue = new AvalonSourceIO(dataBits = 128)
-  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 512, addrBits = 17))
+  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 128, addrBits = 17))
   val uop_mem = Flipped(new AvalonSlaveIO(dataBits = 32, addrBits = 15))
   // val acc_mem = Flipped(new AvalonSlaveIO(dataBits = 512, addrBits = 17))
 }
@@ -143,7 +143,8 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   val iter_in = insn(insn_gem_9_1, insn_gem_9_0)
   val alu_opcode = insn(insn_alu_e_1, insn_alu_e_0)
   val use_imm = insn(insn_alu_f)
-  val imm = insn(insn_alu_g_1, insn_alu_g_0)
+  val imm_raw = insn(insn_alu_g_1, insn_alu_g_0)
+  val imm = Mux(imm_raw.asSInt < 0.S, Cat("hffff".U, imm_raw), Cat("h0000".U, imm_raw))
   val it_in = in_loop_cntr_val
 
   val upc = 0.U
@@ -157,20 +158,20 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
 
   val dst_vector = acc_mem(dst_idx)
   val src_vector = acc_mem(src_idx)
-  val cmp_res = Wire(Vec(block_out, UInt(acc_width.W)))
-  val short_cmp_res = Wire(Vec(block_out, UInt(out_width.W)))
-  val add_res = Wire(Vec(block_out, UInt(acc_width.W)))
-  val short_add_res = Wire(Vec(block_out, UInt(out_width.W)))
-  val shr_res = Wire(Vec(block_out, UInt(acc_width.W)))
-  val short_shr_res = Wire(Vec(block_out, UInt(out_width.W)))
+  val cmp_res       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+  val short_cmp_res = Wire(Vec(block_out + 1, SInt(out_width.W)))
+  val add_res       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+  val short_add_res = Wire(Vec(block_out + 1, SInt(out_width.W)))
+  val shr_res       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+  val short_shr_res = Wire(Vec(block_out + 1, SInt(out_width.W)))
 
-  for (i <- 0 to (block_out - 1)) {
-    cmp_res(i) := 0.U
-    short_cmp_res(i) := 0.U
-    add_res(i) := 0.U
-    short_add_res(i) := 0.U
-    shr_res(i) := 0.U
-    short_shr_res(i) := 0.U
+  for (i <- 0 to (block_out)) {
+    cmp_res(i) := 0.S
+    short_cmp_res(i) := 0.S
+    add_res(i) := 0.S
+    short_add_res(i) := 0.S
+    shr_res(i) := 0.S
+    short_shr_res(i) := 0.S
   }
 
   // loop unroll
@@ -178,19 +179,19 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   for (b <- 0 to (block_out - 1)) {
     val src_0 = Slice(dst_vector, (b * acc_width).U, acc_width)
     val src_1 = Mux(use_imm, imm, Slice(src_vector, (b * acc_width).U, acc_width))
-    val mix_val = Mux(src_0.asSInt < src_1.asSInt, Mux(alu_opcode === alu_opcode_min.U, src_0, src_1),
-                                                   Mux(alu_opcode === alu_opcode_min.U, src_1, src_0))
+    val mix_val = Mux(src_0.asSInt < src_1.asSInt, Mux(alu_opcode === alu_opcode_min.U, src_0, src_1), 
+                                                   Mux(alu_opcode === alu_opcode_min.U, src_1, src_0)).asSInt
     cmp_res(b) := mix_val
-    short_cmp_res(b) := Slice(mix_val.asUInt, 0.U, out_width)
-    val add_val = Slice(src_0, 0.U, acc_width).asSInt + Slice(src_1, 0.U, acc_width).asSInt
-    add_res(b) := add_val.toUInt
-    add_res(b) := Slice(add_val.asUInt, 0.U, out_width)
-    val shr_val = Slice(src_0, 0.U, acc_width) >> Slice(src_1, 0.U, log_acc_width)
+    short_cmp_res(b) := mix_val(out_width - 1, 0).asSInt
+    val add_val = src_0(acc_width - 1, 0).asSInt + src_1(acc_width - 1, 0).asSInt
+    add_res(b) := add_val
+    add_res(b) := add_val(out_width - 1, 0).asSInt
+    val shr_val = src_0(acc_width - 1, 0).asSInt >> src_1(log_acc_width - 1, 0)
     shr_res(b) := shr_val
-    shr_res(b) := Slice(shr_val.asUInt, 0.U, out_width)
-    // printf(p"+---src_0 = 0x${Hexadecimal(src_0)}\n")
-    // printf(p"|   src_1 = 0x${Hexadecimal(src_1)}\n")
-    // printf(p"|   mix_val = 0x${Hexadecimal(mix_val.asUInt)}\n")
+    shr_res(b) := shr_val(out_width - 1, 0).asSInt
+    // printf(p"+---src_0 = 0x${Hexadecimal(src_0.asSInt)}\n")
+    // printf(p"|   src_1 = 0x${Hexadecimal(src_1.asSInt)}\n")
+    printf(p"|   mix_val = 0x${Hexadecimal(cmp_res(b).asUInt)}\n")
   }
   }
 

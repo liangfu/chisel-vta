@@ -31,7 +31,7 @@ class ComputeIO(implicit p: Parameters) extends CoreBundle()(p) {
   val g2s_dep_queue = Flipped(new AvalonSourceIO(dataBits = 1))
   val inp_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 15))
   val wgt_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 18))
-  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 512, addrBits = 17))
+  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 128, addrBits = 17))
 }
 
 class Compute(implicit val p: Parameters) extends Module with CoreParams {

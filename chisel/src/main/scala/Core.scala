@@ -153,7 +153,7 @@ class CoreIO(implicit p: Parameters) extends CoreBundle()(p) {
   val uops = new AvalonSourceIO(dataBits = 32)
   val biases = new AvalonSourceIO(dataBits = 512)
   val gemm_queue = new AvalonSourceIO(dataBits = 128)
-  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 512, addrBits = 17))
+  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 128, addrBits = 17))
 }
 
 class Core(implicit val p: Parameters) extends Module with CoreParams {
