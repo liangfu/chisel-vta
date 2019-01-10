@@ -6,16 +6,6 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.config.Parameters
 
-object Control {
-  val Y = true.B
-  val N = false.B
-
-  import ALU._
-
-  // def Slice = (d: UInt, x: UInt, w: Int) => ((d >> (x)) & ((1.U << w.U) - 1.U))(w - 1, 0)
-  def Slice = (d: UInt, x: UInt, w: Int) => (d >> (x))(w - 1, 0)
-}
-
 class ControlSignals(implicit p: Parameters) extends CoreBundle()(p) {
   val done = new AvalonSlaveIO(dataBits = 1, addrBits = 1)
   val uops = new AvalonSinkIO(dataBits = 32)
@@ -29,10 +19,7 @@ class ControlSignals(implicit p: Parameters) extends CoreBundle()(p) {
 class Control(implicit val p: Parameters) extends Module with CoreParams {
   val io = IO(new ControlSignals)
 
-  // val alu = p(BuildALU)(p)
   val acc_mem = Mem(1 << 8, UInt(512.W))
-
-  import Control._
 
   val insn            = Reg(UInt(128.W))
   val insn_valid      = insn =/= 0.U
@@ -74,8 +61,23 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   // counters
   val acc_cntr_en = (opcode_load_en && memory_type_acc_en && io.biases.valid)
   val (acc_x_cntr_val, acc_x_cntr_wrap) = Counter(acc_cntr_en, 8)
-  val in_loop_cntr_en = opcode_alu_en || opcode_gemm_en
-  val (in_loop_cntr_val, in_loop_cntr_wrap) = Counter(in_loop_cntr_en, 8)
+  val in_loop_cntr_max = 8
+  val in_loop_cntr_en = (opcode_alu_en || opcode_gemm_en)
+  // val (in_loop_cntr_val, in_loop_cntr_wrap) = Counter(in_loop_cntr_en, 8)
+  val in_loop_cntr_val = RegInit(0.U(in_loop_cntr_max.W))
+  val in_loop_cntr_wrap = Wire(UInt(1.W))
+  when (in_loop_cntr_en && !io.out_mem.waitrequest) {
+    when (in_loop_cntr_val === (in_loop_cntr_max - 1).U) {
+      in_loop_cntr_val := 0.U
+      in_loop_cntr_wrap := 1.U
+    } .otherwise {
+      in_loop_cntr_val := in_loop_cntr_val + 1.U
+      in_loop_cntr_wrap := 0.U
+    }
+  } .otherwise {
+    in_loop_cntr_val := in_loop_cntr_val
+    in_loop_cntr_wrap := 0.U
+  }
 
   // status
   val started = 1.U(1.W)
@@ -158,8 +160,8 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   val dst_idx = uop(uop_alu_0_1, uop_alu_0_0) + dst_offset_in
   val src_idx = uop(uop_alu_1_1, uop_alu_1_0) + src_offset_in
 
-  val dst_vector = acc_mem(dst_idx)
-  val src_vector = acc_mem(src_idx)
+  val dst_vector = RegNext(acc_mem(dst_idx))
+  val src_vector = RegNext(acc_mem(src_idx))
   val cmp_res       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
   val short_cmp_res = Wire(Vec(block_out + 1, UInt(out_width.W)))
   val add_res       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
@@ -169,9 +171,9 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   val src_0         = Wire(Vec(block_out + 1, SInt(acc_width.W)))
   val src_1         = Wire(Vec(block_out + 1, SInt(acc_width.W)))
 
-  val mix_val       = Reg(Vec(block_out + 1, SInt(acc_width.W)))
-  val add_val       = Reg(Vec(block_out + 1, SInt(acc_width.W)))
-  val shr_val       = Reg(Vec(block_out + 1, SInt(acc_width.W)))
+  val mix_val       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+  val add_val       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+  val shr_val       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
   val out_mem_addr  = RegNext(dst_idx)
   val out_mem_write_en  = RegNext(opcode_alu_en)
 
@@ -255,28 +257,30 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   io.out_mem.writedata := Mux(alu_opcode_minmax_en, Cat(short_cmp_res.init.reverse),
                           Mux(alu_opcode_add_en, Cat(short_add_res.init.reverse), Cat(short_shr_res.init.reverse)))
 
-  // when ((insn_valid) && in_loop_cntr_en) {
-  //   printf(p"iter_out = 0x${Hexadecimal(iter_out)}\n")
-  //   printf(p"iter_in = 0x${Hexadecimal(iter_in)}\n")
-  //   printf(p"uop_bgn = 0x${Hexadecimal(uop_bgn)}\n")
-  //   printf(p"uop_end = 0x${Hexadecimal(uop_end)}\n")
-  //   printf(p"batch = 0x${Hexadecimal(batch.U)}\n")
-  //   printf(p"block_out = 0x${Hexadecimal(block_out.U)}\n")
-  //   printf(p"in_loop_cntr_val = 0x${Hexadecimal(in_loop_cntr_val)}\n")
-  //   printf(p"in_loop_cntr_wrap = 0x${Hexadecimal(in_loop_cntr_wrap)}\n")
-  //   printf(p"uop = 0x${Hexadecimal(uop)}\n")
-  //   printf(p"dst_idx = 0x${Hexadecimal(dst_idx)}\n")
-  //   printf(p"src_idx = 0x${Hexadecimal(src_idx)}\n")
-  //   printf(p"dst_vector = 0x${Hexadecimal(dst_vector)}\n")
-  //   printf(p"src_vector = 0x${Hexadecimal(src_vector)}\n")
-  //   printf(p"use_imm = 0x${Hexadecimal(use_imm)}\n")
-  //   printf(p"imm = 0x${Hexadecimal(imm)}\n")
-  //   printf(p"acc_width = 0x${Hexadecimal(acc_width.U)}\n")
-  //   printf(p"out_width = 0x${Hexadecimal(out_width.U)}\n")
-  //   printf(p"cmp_res = 0x${Hexadecimal(Cat(cmp_res.init.reverse))}\n")
-  //   printf(p"short_cmp_res = 0x${Hexadecimal(Cat(short_cmp_res.init.reverse))}\n")
-  // }
-  // when (insn_valid) {
-  //   printf(p"=======================================\n")
-  // }
+  when ((insn_valid) && in_loop_cntr_en) {
+    printf(p"iter_out = 0x${Hexadecimal(iter_out)}\n")
+    printf(p"iter_in = 0x${Hexadecimal(iter_in)}\n")
+    printf(p"uop_bgn = 0x${Hexadecimal(uop_bgn)}\n")
+    printf(p"uop_end = 0x${Hexadecimal(uop_end)}\n")
+    printf(p"batch = 0x${Hexadecimal(batch.U)}\n")
+    printf(p"block_out = 0x${Hexadecimal(block_out.U)}\n")
+    printf(p"in_loop_cntr_val = 0x${Hexadecimal(in_loop_cntr_val)}\n")
+    printf(p"in_loop_cntr_wrap = 0x${Hexadecimal(in_loop_cntr_wrap)}\n")
+    printf(p"uop = 0x${Hexadecimal(uop)}\n")
+    printf(p"dst_idx = 0x${Hexadecimal(dst_idx)}\n")
+    printf(p"src_idx = 0x${Hexadecimal(src_idx)}\n")
+    // printf(p"dst_vector = 0x${Hexadecimal(dst_vector)}\n")
+    // printf(p"src_vector = 0x${Hexadecimal(src_vector)}\n")
+    printf(p"use_imm = 0x${Hexadecimal(use_imm)}\n")
+    printf(p"imm = 0x${Hexadecimal(imm)}\n")
+    printf(p"acc_width = 0x${Hexadecimal(acc_width.U)}\n")
+    printf(p"out_width = 0x${Hexadecimal(out_width.U)}\n")
+    // printf(p"cmp_res = 0x${Hexadecimal(Cat(cmp_res.init.reverse))}\n")
+    printf(p"out_mem_addr = 0x${Hexadecimal(out_mem_addr)}\n")
+    printf(p"short_cmp_res = 0x${Hexadecimal(Cat(short_cmp_res.init.reverse))}\n")
+  }
+  when (insn_valid) {
+    printf(p"=======================================\n")
+  }
+
 }

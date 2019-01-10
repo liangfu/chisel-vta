@@ -3,8 +3,6 @@ package vta
 import chisel3._
 import freechips.rocketchip.config.{Parameters, Field}
 
-case object BuildALU extends Field[Parameters => ALU]
-
 case object LOG_INP_WIDTH extends Field[Int]
 case object LOG_WGT_WIDTH extends Field[Int]
 case object LOG_ACC_WIDTH extends Field[Int]

@@ -22,7 +22,5 @@ class VTAConfig extends Config((site, here, up) => {
   case LOG_INP_BUFF_SIZE => 15
   case LOG_WGT_BUFF_SIZE => 18
   case LOG_ACC_BUFF_SIZE => 17
-
-  case BuildALU    => (p: Parameters) => Module(new ALU()(p))
 }
 )
