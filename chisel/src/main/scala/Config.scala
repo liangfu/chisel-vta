@@ -8,8 +8,8 @@ import junctions._
 
 class VTAConfig extends Config((site, here, up) => {
   // Core
-  case XLEN => 8
-  case Trace => true
+  // case XLEN => 8
+  // case Trace => true
 
   case LOG_INP_WIDTH => 3
   case LOG_WGT_WIDTH => 3
@@ -24,11 +24,5 @@ class VTAConfig extends Config((site, here, up) => {
   case LOG_ACC_BUFF_SIZE => 17
 
   case BuildALU    => (p: Parameters) => Module(new ALU()(p))
-
-  // NastiIO
-  case NastiKey => new NastiParameters(
-    idBits   = 5,
-    dataBits = 64,
-    addrBits = here(XLEN))
 }
 )

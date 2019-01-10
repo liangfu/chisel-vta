@@ -8,7 +8,6 @@ import chisel3.iotesters.{PeekPokeTester, Driver, ChiselFlatSpec}
 import ALU._
 
 class ALUTests(c: ALU)(implicit val p: freechips.rocketchip.config.Parameters) extends PeekPokeTester(c) {
-  val xlen = p(XLEN)
   for (n <- 0 until 64) {
     val a      = rnd.nextInt(127)
     val b      = rnd.nextInt(127)

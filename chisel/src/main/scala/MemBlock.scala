@@ -20,16 +20,16 @@ class MemBlockIO(val addrBits : Int, val dataBits : Int) extends Bundle {
   val writedata = Input(UInt(dataBits.W))
 }
 
-class MemBlock(val addrBits : Int, val dataBits : Int, val bypass : Boolean = true) extends Module {
+class MemBlock(val addrBits : Int, val dataBits : Int) extends Module {
   val io = IO(new MemBlockIO(addrBits, dataBits))
   val mem = Mem(1 << addrBits, UInt(dataBits.W))
 
   // write
   when (io.write === 1.U) {
-    printf(p"--------------------------------\n")
-    printf(p"    io.address = ${Hexadecimal(io.address)}\n")
-    printf(p"    io.writedata = ${Hexadecimal(io.writedata)}\n")
-    printf(p"--------------------------------\n")
+    // printf(p"--------------------------------\n")
+    // printf(p"    io.address = ${Hexadecimal(io.address)}\n")
+    // printf(p"    io.writedata = ${Hexadecimal(io.writedata)}\n")
+    // printf(p"--------------------------------\n")
     mem(io.address) := io.writedata
   }
 
@@ -38,11 +38,9 @@ class MemBlock(val addrBits : Int, val dataBits : Int, val bypass : Boolean = tr
   io.readdata := readdata_reg
   io.waitrequest := 0.U
 
-  if (bypass) {
-    // force read during write behavior
-    when (RegNext(io.write) === 1.U && RegNext(io.read) === 1.U) {
-      io.readdata := RegNext(io.writedata)
-    }
+  // force read during write behavior
+  when (RegNext(io.write) === 1.U && RegNext(io.read) === 1.U) {
+    io.readdata := RegNext(io.writedata)
   }
 }
 

@@ -14,7 +14,7 @@ class AvalonSlaveIO(val dataBits: Int = 32, val addrBits: Int = 1)(implicit p: P
   val writedata = Input(UInt(dataBits.W))
 }
   
-class AvalonSourceIO(val dataBits: Int = 32)(implicit p: Parameters) extends CoreBundle()(p) {
+class AvalonSinkIO(val dataBits: Int = 32)(implicit p: Parameters) extends CoreBundle()(p) {
   val ready = Output(Bool())
   val valid = Input(Bool())
   val data = Input(UInt(dataBits.W))
@@ -22,13 +22,13 @@ class AvalonSourceIO(val dataBits: Int = 32)(implicit p: Parameters) extends Cor
 
 class ComputeIO(implicit p: Parameters) extends CoreBundle()(p) {
   val done = new AvalonSlaveIO(dataBits = 1, addrBits = 1)
-  val uops = new AvalonSourceIO(dataBits = 32)
-  val biases = new AvalonSourceIO(dataBits = 512)
-  val gemm_queue = new AvalonSourceIO(dataBits = 128)
-  val l2g_dep_queue = new AvalonSourceIO(dataBits = 1)
-  val s2g_dep_queue = new AvalonSourceIO(dataBits = 1)
-  val g2l_dep_queue = Flipped(new AvalonSourceIO(dataBits = 1))
-  val g2s_dep_queue = Flipped(new AvalonSourceIO(dataBits = 1))
+  val uops = new AvalonSinkIO(dataBits = 32)
+  val biases = new AvalonSinkIO(dataBits = 512)
+  val gemm_queue = new AvalonSinkIO(dataBits = 128)
+  val l2g_dep_queue = new AvalonSinkIO(dataBits = 1)
+  val s2g_dep_queue = new AvalonSinkIO(dataBits = 1)
+  val g2l_dep_queue = Flipped(new AvalonSinkIO(dataBits = 1))
+  val g2s_dep_queue = Flipped(new AvalonSinkIO(dataBits = 1))
   val inp_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 15))
   val wgt_mem = Flipped(new AvalonSlaveIO(dataBits = 64, addrBits = 18))
   val out_mem = Flipped(new AvalonSlaveIO(dataBits = 128, addrBits = 17))

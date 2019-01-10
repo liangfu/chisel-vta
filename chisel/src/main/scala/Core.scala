@@ -3,8 +3,6 @@ package vta
 import chisel3._
 import freechips.rocketchip.config.{Parameters, Field}
 
-case object XLEN extends Field[Int]
-case object Trace extends Field[Boolean]
 case object BuildALU extends Field[Parameters => ALU]
 
 case object LOG_INP_WIDTH extends Field[Int]
@@ -21,7 +19,6 @@ case object LOG_ACC_BUFF_SIZE extends Field[Int]
 
 abstract trait CoreParams {
   implicit val p: Parameters
-  val xlen = p(XLEN)
 
   val log_uop_buff_size = p(LOG_UOP_BUFF_SIZE)
   val log_inp_buff_size = p(LOG_INP_BUFF_SIZE)
@@ -150,9 +147,9 @@ abstract class CoreBundle(implicit val p: Parameters) extends Bundle with CorePa
 
 class CoreIO(implicit p: Parameters) extends CoreBundle()(p) {
   val done = new AvalonSlaveIO(dataBits = 1, addrBits = 1)
-  val uops = new AvalonSourceIO(dataBits = 32)
-  val biases = new AvalonSourceIO(dataBits = 512)
-  val gemm_queue = new AvalonSourceIO(dataBits = 128)
+  val uops = new AvalonSinkIO(dataBits = 32)
+  val biases = new AvalonSinkIO(dataBits = 512)
+  val gemm_queue = new AvalonSinkIO(dataBits = 128)
   val out_mem = Flipped(new AvalonSlaveIO(dataBits = 128, addrBits = 17))
 }
 
@@ -160,7 +157,7 @@ class Core(implicit val p: Parameters) extends Module with CoreParams {
   val io = IO(new CoreIO)
   // val dpath = Module(new Datapath) 
   val ctrl  = Module(new Control)
-  val uop_mem = Module(new MemBlock(dataBits = 32, addrBits = 15))
+  val uop_mem = Module(new MemBlock(dataBits = 32, addrBits = 10))
   // val acc_mem = Module(new MemBlock(dataBits = 512, addrBits = 17))
 
   // dpath.io.gemm_queue <> io.gemm_queue
