@@ -59,11 +59,27 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   val memory_type_acc_en = memory_type === mem_id_acc.U
 
   // counters
-  val acc_cntr_en = (opcode_load_en && memory_type_acc_en && io.biases.valid)
-  val (acc_x_cntr_val, acc_x_cntr_wrap) = Counter(acc_cntr_en, 8)
+  val acc_x_cntr_max = 8
+  val acc_x_cntr_en = (opcode_load_en && memory_type_acc_en)
+  // val (acc_x_cntr_val, acc_x_cntr_wrap) = Counter(acc_x_cntr_en, acc_x_cntr_max)
+  val acc_x_cntr_val = RegInit(0.U(acc_x_cntr_max.W))
+  val acc_x_cntr_wrap = Wire(UInt(1.W))
+  when (acc_x_cntr_en && io.biases.valid) {
+    when (acc_x_cntr_val === (acc_x_cntr_max - 1).U) {
+      acc_x_cntr_val := 0.U
+      acc_x_cntr_wrap := 1.U
+    } .otherwise {
+      acc_x_cntr_val := acc_x_cntr_val + 1.U
+      acc_x_cntr_wrap := 0.U
+    }
+  } .otherwise {
+    acc_x_cntr_val := acc_x_cntr_val
+    acc_x_cntr_wrap := 0.U
+  }
+
   val in_loop_cntr_max = 8
   val in_loop_cntr_en = (opcode_alu_en || opcode_gemm_en)
-  // val (in_loop_cntr_val, in_loop_cntr_wrap) = Counter(in_loop_cntr_en, 8)
+  // val (in_loop_cntr_val, in_loop_cntr_wrap) = Counter(in_loop_cntr_en, in_loop_cntr_max)
   val in_loop_cntr_val = RegInit(0.U(in_loop_cntr_max.W))
   val in_loop_cntr_wrap = Wire(UInt(1.W))
   when (in_loop_cntr_en && !io.out_mem.waitrequest) {
@@ -82,7 +98,7 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   // status
   val started = 1.U(1.W)
   val busy = Mux(opcode_load_en && memory_type_uop_en, 0.U,
-             Mux(acc_cntr_en && !acc_x_cntr_wrap, 1.U, 
+             Mux(acc_x_cntr_en && !acc_x_cntr_wrap, 1.U, 
              Mux(in_loop_cntr_en && !in_loop_cntr_wrap, 1.U, 0.U)))
   val done = 1.U(1.W)
 
@@ -124,16 +140,16 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
 
   // write to acc_mem
   val acc_mem_addr = ((sram_idx + y_offset + x_pad_0) * batch.U + acc_x_cntr_val)
-  when (acc_cntr_en) {
+  when (acc_x_cntr_en) {
     acc_mem(acc_mem_addr) := io.biases.data
   }
-  io.biases.ready := acc_cntr_en
-  // when ((insn_valid) && acc_cntr_en) {
+  io.biases.ready := acc_x_cntr_en
+  // when ((insn_valid) && acc_x_cntr_en) {
   //   printf(p"x_pad_0 = 0x${Hexadecimal(x_pad_0)}\n")
   //   printf(p"x_pad_1 = 0x${Hexadecimal(x_pad_1)}\n")
   //   printf(p"y_size = 0x${Hexadecimal(y_size)}\n")
   //   printf(p"x_size = 0x${Hexadecimal(x_size)}\n")
-  //   printf(p"acc_cntr_en = 0x${Hexadecimal(acc_cntr_en)}\n")
+  //   printf(p"acc_x_cntr_en = 0x${Hexadecimal(acc_x_cntr_en)}\n")
   //   printf(p"acc_x_cntr_val = 0x${Hexadecimal(acc_x_cntr_val)}\n")
   //   printf(p"acc_x_cntr_wrap = 0x${Hexadecimal(acc_x_cntr_wrap)}\n")
   //   printf(p"acc_mem_addr = 0x${Hexadecimal(acc_mem_addr)}\n")
@@ -233,12 +249,12 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
       mix_val(b) := Mux(src_0(b) < src_1(b), src_0(b), src_1(b))
       cmp_res(b) := mix_val(b)
       short_cmp_res(b) := mix_val(b)(out_width - 1, 0)
-      // add_val(b) := (src_0(b)(acc_width - 1, 0) + src_1(b)(acc_width - 1, 0)).asSInt
-      // add_res(b) := add_val(b)
-      // short_add_res(b) := add_res(b)(out_width - 1, 0)
-      // shr_val(b) := (src_0(b)(acc_width - 1, 0) >> src_1(b)(log_acc_width - 1, 0)).asSInt
-      // shr_res(b) := shr_val(b)
-      // short_shr_res(b) := shr_res(b)(out_width - 1, 0)
+      add_val(b) := (src_0(b)(acc_width - 1, 0) + src_1(b)(acc_width - 1, 0)).asSInt
+      add_res(b) := add_val(b)
+      short_add_res(b) := add_res(b)(out_width - 1, 0)
+      shr_val(b) := (src_0(b)(acc_width - 1, 0) >> src_1(b)(log_acc_width - 1, 0)).asSInt
+      shr_res(b) := shr_val(b)
+      short_shr_res(b) := shr_res(b)(out_width - 1, 0)
     }
   }
 
@@ -257,30 +273,30 @@ class Control(implicit val p: Parameters) extends Module with CoreParams {
   io.out_mem.writedata := Mux(alu_opcode_minmax_en, Cat(short_cmp_res.init.reverse),
                           Mux(alu_opcode_add_en, Cat(short_add_res.init.reverse), Cat(short_shr_res.init.reverse)))
 
-  when ((insn_valid) && in_loop_cntr_en) {
-    printf(p"iter_out = 0x${Hexadecimal(iter_out)}\n")
-    printf(p"iter_in = 0x${Hexadecimal(iter_in)}\n")
-    printf(p"uop_bgn = 0x${Hexadecimal(uop_bgn)}\n")
-    printf(p"uop_end = 0x${Hexadecimal(uop_end)}\n")
-    printf(p"batch = 0x${Hexadecimal(batch.U)}\n")
-    printf(p"block_out = 0x${Hexadecimal(block_out.U)}\n")
-    printf(p"in_loop_cntr_val = 0x${Hexadecimal(in_loop_cntr_val)}\n")
-    printf(p"in_loop_cntr_wrap = 0x${Hexadecimal(in_loop_cntr_wrap)}\n")
-    printf(p"uop = 0x${Hexadecimal(uop)}\n")
-    printf(p"dst_idx = 0x${Hexadecimal(dst_idx)}\n")
-    printf(p"src_idx = 0x${Hexadecimal(src_idx)}\n")
-    // printf(p"dst_vector = 0x${Hexadecimal(dst_vector)}\n")
-    // printf(p"src_vector = 0x${Hexadecimal(src_vector)}\n")
-    printf(p"use_imm = 0x${Hexadecimal(use_imm)}\n")
-    printf(p"imm = 0x${Hexadecimal(imm)}\n")
-    printf(p"acc_width = 0x${Hexadecimal(acc_width.U)}\n")
-    printf(p"out_width = 0x${Hexadecimal(out_width.U)}\n")
-    // printf(p"cmp_res = 0x${Hexadecimal(Cat(cmp_res.init.reverse))}\n")
-    printf(p"out_mem_addr = 0x${Hexadecimal(out_mem_addr)}\n")
-    printf(p"short_cmp_res = 0x${Hexadecimal(Cat(short_cmp_res.init.reverse))}\n")
-  }
-  when (insn_valid) {
-    printf(p"=======================================\n")
-  }
+  // when ((insn_valid) && in_loop_cntr_en) {
+  //   printf(p"iter_out = 0x${Hexadecimal(iter_out)}\n")
+  //   printf(p"iter_in = 0x${Hexadecimal(iter_in)}\n")
+  //   printf(p"uop_bgn = 0x${Hexadecimal(uop_bgn)}\n")
+  //   printf(p"uop_end = 0x${Hexadecimal(uop_end)}\n")
+  //   printf(p"batch = 0x${Hexadecimal(batch.U)}\n")
+  //   printf(p"block_out = 0x${Hexadecimal(block_out.U)}\n")
+  //   printf(p"in_loop_cntr_val = 0x${Hexadecimal(in_loop_cntr_val)}\n")
+  //   printf(p"in_loop_cntr_wrap = 0x${Hexadecimal(in_loop_cntr_wrap)}\n")
+  //   printf(p"uop = 0x${Hexadecimal(uop)}\n")
+  //   printf(p"dst_idx = 0x${Hexadecimal(dst_idx)}\n")
+  //   printf(p"src_idx = 0x${Hexadecimal(src_idx)}\n")
+  //   // printf(p"dst_vector = 0x${Hexadecimal(dst_vector)}\n")
+  //   // printf(p"src_vector = 0x${Hexadecimal(src_vector)}\n")
+  //   printf(p"use_imm = 0x${Hexadecimal(use_imm)}\n")
+  //   printf(p"imm = 0x${Hexadecimal(imm)}\n")
+  //   printf(p"acc_width = 0x${Hexadecimal(acc_width.U)}\n")
+  //   printf(p"out_width = 0x${Hexadecimal(out_width.U)}\n")
+  //   // printf(p"cmp_res = 0x${Hexadecimal(Cat(cmp_res.init.reverse))}\n")
+  //   printf(p"out_mem_addr = 0x${Hexadecimal(out_mem_addr)}\n")
+  //   printf(p"short_cmp_res = 0x${Hexadecimal(Cat(short_cmp_res.init.reverse))}\n")
+  // }
+  // when (insn_valid) {
+  //   printf(p"=======================================\n")
+  // }
 
 }
