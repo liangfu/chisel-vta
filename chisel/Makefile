@@ -54,7 +54,7 @@ run-custom-bmark: $(custom_bmark_out)
 
 # unit tests + integration tests 
 test:
-	$(SBT) -v "test:runMain vta.Launcher Compute --backend-name verilator"
+	$(SBT) -v "test:runMain vta.Launcher Compute Store --backend-name verilator"
 
 # $(SBT) $(SBT_FLAGS) test
 

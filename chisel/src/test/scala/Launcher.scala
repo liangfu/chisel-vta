@@ -17,6 +17,11 @@ object Launcher {
         Driver.execute(() => new Compute(), manager) {
           (c) => new ComputeTests(c)
         }
+      },
+      "Store" -> { (manager: TesterOptionsManager) =>
+        Driver.execute(() => new Store(), manager) {
+          (c) => new StoreTests(c)
+        }
       }
   )
   def main(args: Array[String]): Unit = {
