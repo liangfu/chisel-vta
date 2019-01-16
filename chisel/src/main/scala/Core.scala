@@ -15,6 +15,21 @@ case object LOG_INP_BUFF_SIZE extends Field[Int]
 case object LOG_WGT_BUFF_SIZE extends Field[Int]
 case object LOG_ACC_BUFF_SIZE extends Field[Int]
 
+class AvalonSlaveIO(val dataBits: Int = 32, val addrBits: Int = 1)(implicit p: Parameters) extends CoreBundle()(p) {
+  val waitrequest = Output(Bool())
+  val address = Input(UInt(addrBits.W))
+  val read = Input(Bool())
+  val readdata = Output(UInt(dataBits.W))
+  val write = Input(Bool())
+  val writedata = Input(UInt(dataBits.W))
+}
+  
+class AvalonSinkIO(val dataBits: Int = 32)(implicit p: Parameters) extends CoreBundle()(p) {
+  val ready = Output(Bool())
+  val valid = Input(Bool())
+  val data = Input(UInt(dataBits.W))
+}
+
 abstract trait CoreParams {
   implicit val p: Parameters
 
@@ -142,36 +157,4 @@ abstract trait CoreParams {
 }
 
 abstract class CoreBundle(implicit val p: Parameters) extends Bundle with CoreParams
-
-class CoreIO(implicit p: Parameters) extends CoreBundle()(p) {
-  val done = new AvalonSlaveIO(dataBits = 1, addrBits = 1)
-  val uops = new AvalonSinkIO(dataBits = 32)
-  val biases = new AvalonSinkIO(dataBits = 512)
-  val gemm_queue = new AvalonSinkIO(dataBits = 128)
-  val out_mem = Flipped(new AvalonSlaveIO(dataBits = 128, addrBits = 17))
-}
-
-class Core(implicit val p: Parameters) extends Module with CoreParams {
-  val io = IO(new CoreIO)
-  // val dpath = Module(new Datapath) 
-  val ctrl  = Module(new Control)
-  val uop_mem = Module(new MemBlock(dataBits = 32, addrBits = 10))
-  // val acc_mem = Module(new MemBlock(dataBits = 512, addrBits = 17))
-
-  // dpath.io.gemm_queue <> io.gemm_queue
-  ctrl.io.done <> io.done
-  ctrl.io.uops <> io.uops
-  ctrl.io.biases <> io.biases
-  ctrl.io.gemm_queue <> io.gemm_queue
-  ctrl.io.out_mem <> io.out_mem
-
-  // connect to block RAM
-  ctrl.io.uop_mem <> uop_mem.io
-  // ctrl.io.acc_mem <> acc_mem.io
-
-  // ctrl.io.uop_mem <> uop_mem
-  // dpath.io.icache <> io.icache
-  // dpath.io.dcache <> io.dcache
-  // dpath.io.ctrl <> ctrl.io
-}
 

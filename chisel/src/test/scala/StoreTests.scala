@@ -9,11 +9,13 @@ import chisel3.iotesters.{PeekPokeTester, Driver, ChiselFlatSpec}
 class StoreTests(c: Store)(implicit val p: freechips.rocketchip.config.Parameters)
     extends PeekPokeTester(c) {
 
-  val insn0 = "h00000001000100010000000000000000".U
+  val insn0 = "h00000008000800010000000000000029".U
 
-  poke(c.io.store_queue.data, 0.U)
-  poke(c.io.store_queue.valid, 0.U)
   step(1)
+  poke(c.io.store_queue.data, insn0)
+  poke(c.io.store_queue.valid, 1.U)
+  step(1)
+  poke(c.io.store_queue.valid, 0.U)
   step(1)
   step(1)
 

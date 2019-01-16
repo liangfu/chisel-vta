@@ -5,12 +5,6 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.config.Parameters
 
-// object MemBlock {
-//   def apply(addrBits : Int, dataBits : Int, bypass : Boolean = true) = {
-//     Module(new MemBlock(addrBits, dataBits, bypass))
-//   }
-// }
-
 class MemBlockIO(val addrBits : Int, val dataBits : Int) extends Bundle {
   val waitrequest = Output(Bool())
   val address = Input(UInt(addrBits.W))
@@ -26,10 +20,6 @@ class MemBlock(val addrBits : Int, val dataBits : Int) extends Module {
 
   // write
   when (io.write === 1.U) {
-    // printf(p"--------------------------------\n")
-    // printf(p"    io.address = ${Hexadecimal(io.address)}\n")
-    // printf(p"    io.writedata = ${Hexadecimal(io.writedata)}\n")
-    // printf(p"--------------------------------\n")
     mem(io.address) := io.writedata
   }
 

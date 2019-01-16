@@ -1,24 +1,10 @@
-// See LICENSE.txt for license details.
+// See LICENSE for license details.
+
 package vta
 
 import chisel3._
 import chisel3.util._
-import freechips.rocketchip.config.{Parameters, Field}
-
-class AvalonSlaveIO(val dataBits: Int = 32, val addrBits: Int = 1)(implicit p: Parameters) extends CoreBundle()(p) {
-  val waitrequest = Output(Bool())
-  val address = Input(UInt(addrBits.W))
-  val read = Input(Bool())
-  val readdata = Output(UInt(dataBits.W))
-  val write = Input(Bool())
-  val writedata = Input(UInt(dataBits.W))
-}
-  
-class AvalonSinkIO(val dataBits: Int = 32)(implicit p: Parameters) extends CoreBundle()(p) {
-  val ready = Output(Bool())
-  val valid = Input(Bool())
-  val data = Input(UInt(dataBits.W))
-}
+import freechips.rocketchip.config.Parameters
 
 class ComputeIO(implicit p: Parameters) extends CoreBundle()(p) {
   val done = new AvalonSlaveIO(dataBits = 1, addrBits = 1)
@@ -35,22 +21,246 @@ class ComputeIO(implicit p: Parameters) extends CoreBundle()(p) {
 }
 
 class Compute(implicit val p: Parameters) extends Module with CoreParams {
-  // implicit val p = params
-  val io = IO(new ComputeIO())
-  val core = Module(new Core)
+  val io = IO(new ComputeIO)
 
-  io.done <> core.io.done
-  io.uops <> core.io.uops
-  io.biases <> core.io.biases
-  io.gemm_queue <> core.io.gemm_queue
-  io.l2g_dep_queue <> DontCare
-  io.s2g_dep_queue <> DontCare
-  io.g2l_dep_queue <> DontCare
-  io.g2s_dep_queue <> DontCare
   io.inp_mem <> DontCare
   io.wgt_mem <> DontCare
-  io.out_mem <> core.io.out_mem
-  // io.uop_mem <> core.io.uop_mem
-  // io.acc_mem <> DontCare
-}
 
+  val acc_mem = Mem(1 << 8, UInt(512.W))
+  val uop_mem = Mem(1 << 10, UInt(32.W))
+
+  val insn            = Reg(UInt(128.W))
+  val insn_valid      = insn =/= 0.U
+
+  val opcode          = insn(insn_mem_0_1, insn_mem_0_0)
+  val pop_prev_dep    = insn(insn_mem_1)
+  val pop_next_dep    = insn(insn_mem_2)
+  val push_prev_dep   = insn(insn_mem_3)
+  val push_next_dep   = insn(insn_mem_4)
+
+  val uops_data       = Reg(UInt(32.W))
+
+  val memory_type = insn(insn_mem_5_1, insn_mem_5_0)
+  val sram_base   = insn(insn_mem_6_1, insn_mem_6_0)
+  val dram_base   = insn(insn_mem_7_1, insn_mem_7_0)
+  val y_size      = insn(insn_mem_8_1, insn_mem_8_0)
+  val x_size      = insn(insn_mem_9_1, insn_mem_9_0)
+  val x_stride    = insn(insn_mem_a_1, insn_mem_a_0)
+  val y_pad_0     = insn(insn_mem_b_1, insn_mem_b_0)
+  val y_pad_1     = insn(insn_mem_c_1, insn_mem_c_0)
+  val x_pad_0     = insn(insn_mem_d_1, insn_mem_d_0)
+  val x_pad_1     = insn(insn_mem_e_1, insn_mem_e_0)
+
+  val sram_idx = sram_base
+  val dram_idx = dram_base
+  val y_size_total = y_pad_0 + y_size + y_pad_1
+  val x_size_total = x_pad_0 + x_size + x_pad_1
+  val y_offset = x_size_total * y_pad_0
+
+  // control and status registers (csr)
+  val opcode_finish_en = (opcode === opcode_finish.U)
+  val opcode_load_en = (opcode === opcode_load.U || opcode === opcode_store.U)
+  val opcode_gemm_en = (opcode === opcode_gemm.U)
+  val opcode_alu_en = (opcode === opcode_alu.U)
+
+  val memory_type_uop_en = memory_type === mem_id_uop.U
+  val memory_type_acc_en = memory_type === mem_id_acc.U
+
+  // counters
+  val acc_x_cntr_max = 8
+  val acc_x_cntr_en = (opcode_load_en && memory_type_acc_en)
+  val acc_x_cntr_wait = !io.biases.valid
+  val (acc_x_cntr_val, acc_x_cntr_wrap) = Counter(acc_x_cntr_en && !acc_x_cntr_wait, acc_x_cntr_max)
+
+  val in_loop_cntr_max = 8
+  val in_loop_cntr_en = (opcode_alu_en || opcode_gemm_en)
+  val in_loop_cntr_wait = io.out_mem.waitrequest
+  val (in_loop_cntr_val, in_loop_cntr_wrap) = Counter(in_loop_cntr_en && !in_loop_cntr_wait, in_loop_cntr_max)
+
+  // status
+  val started = 1.U(1.W)
+  val busy = Mux(opcode_load_en && memory_type_uop_en, 0.U,
+             Mux(acc_x_cntr_en && !acc_x_cntr_wrap, 1.U, 
+             Mux(in_loop_cntr_en && !in_loop_cntr_wrap, 1.U, 0.U)))
+  val done = 1.U(1.W)
+
+  // fetch instruction
+  when (io.gemm_queue.valid && !busy) {
+    insn := io.gemm_queue.data
+    io.gemm_queue.ready := 1.U
+  } .otherwise {
+    insn := insn
+    io.gemm_queue.ready := 0.U
+  }
+
+  // fetch uops
+  when (io.uops.valid && memory_type_uop_en && insn_valid) {
+    uops_data := io.uops.data
+    io.uops.ready := 1.U
+  } .otherwise {
+    uops_data := uops_data
+    io.uops.ready := 0.U
+  }
+
+  io.done.waitrequest := 0.U
+  io.done.readdata := Mux(opcode_finish_en, 1.U, 0.U)
+
+  // write to uop_mem
+  val uop_mem_write_en = (opcode_load_en && (memory_type === mem_id_uop.U))
+  val uop_mem_addr = Mux(uop_mem_write_en, insn(insn_mem_6_1, insn_mem_6_0), 0.U)
+  uop_mem(uop_mem_addr) := uops_data
+
+  // write to acc_mem
+  val acc_mem_addr = ((sram_idx + y_offset + x_pad_0) * batch.U + acc_x_cntr_val)
+  when (acc_x_cntr_en) {
+    acc_mem(acc_mem_addr) := io.biases.data
+  }
+  io.biases.ready := acc_x_cntr_en
+
+  // write to out_mem
+  val uop_bgn = insn(insn_gem_6_1, insn_gem_6_0)
+  val uop_end = insn(insn_gem_7_1, insn_gem_7_0)
+  val iter_out = insn(insn_gem_8_1, insn_gem_8_0)
+  val iter_in = insn(insn_gem_9_1, insn_gem_9_0)
+  val alu_opcode = insn(insn_alu_e_1, insn_alu_e_0)
+  val use_imm = insn(insn_alu_f)
+  val imm_raw = insn(insn_alu_g_1, insn_alu_g_0)
+  val imm = Mux(imm_raw.asSInt < 0.S, Cat("hffff".U, imm_raw), Cat("h0000".U, imm_raw)).asSInt
+  val it_in = in_loop_cntr_val
+
+  // read from uop_mem
+  val upc = 0.U
+  val uop = uop_mem(upc)
+  val dst_offset_in = it_in
+  val src_offset_in = it_in
+  val dst_idx = uop(uop_alu_0_1, uop_alu_0_0) + dst_offset_in
+  val src_idx = uop(uop_alu_1_1, uop_alu_1_0) + src_offset_in
+
+  // build alu
+  val dst_vector = RegNext(acc_mem(dst_idx))
+  val src_vector = RegNext(acc_mem(src_idx))
+  val cmp_res       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+  val short_cmp_res = Wire(Vec(block_out + 1, UInt(out_width.W)))
+  val add_res       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+  val short_add_res = Wire(Vec(block_out + 1, UInt(out_width.W)))
+  val shr_res       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+  val short_shr_res = Wire(Vec(block_out + 1, UInt(out_width.W)))
+  val src_0         = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+  val src_1         = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+
+  val mix_val       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+  val add_val       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+  val shr_val       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
+  val out_mem_addr  = RegNext(dst_idx << 4.U)
+  val out_mem_write_en  = RegNext(opcode_alu_en)
+
+  val alu_opcode_min_en = alu_opcode === alu_opcode_min.U
+  val alu_opcode_max_en = alu_opcode === alu_opcode_max.U
+
+  // set default value
+  for (i <- 0 to (block_out)) {
+    cmp_res(i) := 0.S
+    short_cmp_res(i) := 0.U
+    add_res(i) := 0.S
+    short_add_res(i) := 0.U
+    shr_res(i) := 0.S
+    short_shr_res(i) := 0.U
+
+    mix_val(i) := 0.S
+    add_val(i) := 0.S
+    shr_val(i) := 0.S
+    src_0(i) := 0.S
+    src_1(i) := 0.S
+  }
+
+  // loop unroll
+  when (insn_valid && in_loop_cntr_en) {
+    when (alu_opcode_max_en) {
+      for (b <- 0 to (block_out - 1)) {
+        src_0(b) := src_vector((b + 1) * acc_width - 1, b * acc_width).asSInt
+        src_1(b) := dst_vector((b + 1) * acc_width - 1, b * acc_width).asSInt
+      }
+    } .otherwise {
+      for (b <- 0 to (block_out - 1)) {
+        src_0(b) := dst_vector((b + 1) * acc_width - 1, b * acc_width).asSInt
+        src_1(b) := src_vector((b + 1) * acc_width - 1, b * acc_width).asSInt
+      }
+    }
+    when (use_imm) {
+      for (b <- 0 to (block_out - 1)) { src_1(b) := imm }
+    }
+    val block_out_val = block_out - 1
+    for (b <- 0 to block_out_val) {
+      mix_val(b) := Mux(src_0(b) < src_1(b), src_0(b), src_1(b))
+      cmp_res(b) := mix_val(b)
+      short_cmp_res(b) := mix_val(b)(out_width - 1, 0)
+      add_val(b) := (src_0(b)(acc_width - 1, 0) + src_1(b)(acc_width - 1, 0)).asSInt
+      add_res(b) := add_val(b)
+      short_add_res(b) := add_res(b)(out_width - 1, 0)
+      shr_val(b) := (src_0(b)(acc_width - 1, 0) >> src_1(b)(log_acc_width - 1, 0)).asSInt
+      shr_res(b) := shr_val(b)
+      short_shr_res(b) := shr_res(b)(out_width - 1, 0)
+    }
+  }
+
+  io.out_mem.address := out_mem_addr
+  io.out_mem.read := 0.U
+  io.out_mem.write := out_mem_write_en
+  val alu_opcode_minmax_en = alu_opcode_min_en || alu_opcode_max_en
+  val alu_opcode_add_en = (alu_opcode === alu_opcode_add.U)
+  io.out_mem.writedata := Mux(alu_opcode_minmax_en, Cat(short_cmp_res.init.reverse),
+                          Mux(alu_opcode_add_en, Cat(short_add_res.init.reverse), Cat(short_shr_res.init.reverse)))
+
+  // when ((insn_valid) && acc_x_cntr_en) {
+  //   printf(p"x_pad_0 = 0x${Hexadecimal(x_pad_0)}\n")
+  //   printf(p"x_pad_1 = 0x${Hexadecimal(x_pad_1)}\n")
+  //   printf(p"y_size = 0x${Hexadecimal(y_size)}\n")
+  //   printf(p"x_size = 0x${Hexadecimal(x_size)}\n")
+  //   printf(p"acc_x_cntr_en = 0x${Hexadecimal(acc_x_cntr_en)}\n")
+  //   printf(p"acc_x_cntr_val = 0x${Hexadecimal(acc_x_cntr_val)}\n")
+  //   printf(p"acc_x_cntr_wrap = 0x${Hexadecimal(acc_x_cntr_wrap)}\n")
+  //   printf(p"acc_mem_addr = 0x${Hexadecimal(acc_mem_addr)}\n")
+  //   printf(p"io.biases.data = 0x${Hexadecimal(io.biases.data)}\n")
+  // }
+  // when ((insn_valid) && in_loop_cntr_en) {
+  //   printf(p"iter_out = 0x${Hexadecimal(iter_out)}\n")
+  //   printf(p"iter_in = 0x${Hexadecimal(iter_in)}\n")
+  //   printf(p"uop_bgn = 0x${Hexadecimal(uop_bgn)}\n")
+  //   printf(p"uop_end = 0x${Hexadecimal(uop_end)}\n")
+  //   printf(p"batch = 0x${Hexadecimal(batch.U)}\n")
+  //   printf(p"block_out = 0x${Hexadecimal(block_out.U)}\n")
+  //   printf(p"in_loop_cntr_val = 0x${Hexadecimal(in_loop_cntr_val)}\n")
+  //   printf(p"in_loop_cntr_wrap = 0x${Hexadecimal(in_loop_cntr_wrap)}\n")
+  //   printf(p"uop = 0x${Hexadecimal(uop)}\n")
+  //   printf(p"dst_idx = 0x${Hexadecimal(dst_idx)}\n")
+  //   printf(p"src_idx = 0x${Hexadecimal(src_idx)}\n")
+  //   printf(p"use_imm = 0x${Hexadecimal(use_imm)}\n")
+  //   printf(p"imm = 0x${Hexadecimal(imm)}\n")
+  //   printf(p"acc_width = 0x${Hexadecimal(acc_width.U)}\n")
+  //   printf(p"out_width = 0x${Hexadecimal(out_width.U)}\n")
+  //   printf(p"out_mem_addr = 0x${Hexadecimal(out_mem_addr)}\n")
+  //   printf(p"short_cmp_res = 0x${Hexadecimal(Cat(short_cmp_res.init.reverse))}\n")
+  // }
+  // when (insn_valid) {
+  //   printf(p"=======================================\n")
+  // }
+
+  val g2l_queue = Module(new Queue(UInt(1.W), 16))
+  val g2s_queue = Module(new Queue(UInt(1.W), 16))
+  g2l_queue.io.deq.valid <> io.g2l_dep_queue.valid
+  g2l_queue.io.deq.ready <> io.g2l_dep_queue.ready
+  g2l_queue.io.deq.bits  <> io.g2l_dep_queue.data
+  g2s_queue.io.deq.valid <> io.g2s_dep_queue.valid
+  g2s_queue.io.deq.ready <> io.g2s_dep_queue.ready
+  g2s_queue.io.deq.bits  <> io.g2s_dep_queue.data
+
+  g2l_queue.io.enq.bits := 1.U
+  g2s_queue.io.enq.bits := 1.U
+  g2l_queue.io.enq.valid := Mux(push_prev_dep && in_loop_cntr_wrap.toBool, 1.U, 0.U)
+  g2s_queue.io.enq.valid := Mux(push_next_dep && in_loop_cntr_wrap.toBool, 1.U, 0.U)
+  g2l_queue.io.enq.ready <> DontCare
+  g2s_queue.io.enq.ready <> DontCare
+
+  io.l2g_dep_queue <> DontCare
+  io.s2g_dep_queue <> DontCare
+}
