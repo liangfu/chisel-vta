@@ -6,7 +6,7 @@ import chisel3.util._
 import freechips.rocketchip.config.{Parameters, Field}
 
 class StoreIO(implicit p: Parameters) extends CoreBundle()(p) {
-  val outputs = Flipped(new AvalonSinkIO(dataBits = 128))
+  val outputs = Flipped(new AvalonSlaveIO(dataBits = 128, addrBits = 32))
   val store_queue = new AvalonSinkIO(dataBits = 128)
   val s2g_dep_queue = Flipped(new AvalonSinkIO(dataBits = 1))
   val g2s_dep_queue = new AvalonSinkIO(dataBits = 1)
@@ -18,6 +18,10 @@ class Store(implicit val p: Parameters) extends Module with CoreParams {
 
   val insn            = Reg(UInt(128.W))
   val insn_valid      = insn =/= 0.U
+
+  val g2s_dep_queue_valid = Reg(Bool())
+  val g2s_dep_queue_wait = Reg(Bool())
+  val s2g_dep_queue_done = Reg(Bool())
 
   // Decode
   val pop_prev_dependence = insn(insn_mem_1)
@@ -42,19 +46,50 @@ class Store(implicit val p: Parameters) extends Module with CoreParams {
   val sram_idx = (sram_base + y_offset) + x_pad_0
   val dram_idx = dram_base
 
+  // fifo buffer
+  val out_queue = Module(new Queue(UInt(128.W), 8))
+
   // counters
-  val acc_x_cntr_max = 8
-  val acc_x_cntr_en = RegNext(!io.out_mem.waitrequest && io.outputs.valid) /// ????
-  val (acc_x_cntr_val, acc_x_cntr_wrap) = Counter(acc_x_cntr_en, acc_x_cntr_max)
+  val enq_cntr_max = x_size * y_size
+  val enq_cntr_en = true.B
+  val enq_cntr_wait = !out_queue.io.enq.ready || io.out_mem.waitrequest
+  val enq_cntr_val = Reg(UInt(32.W))
+  val enq_cntr_wrap = 0.U
 
-  // io.store_queue <> DontCare
-  // io.outputs <> DontCare
-  io.s2g_dep_queue <> DontCare
-  io.g2s_dep_queue <> DontCare
-  // io.out_mem <> DontCare
+  val deq_cntr_max = x_size * y_size
+  val deq_cntr_en = out_queue.io.deq.valid
+  val deq_cntr_wait = io.outputs.waitrequest
+  val deq_cntr_val = Reg(UInt(32.W))
+  val deq_cntr_wrap = 0.U
 
+  // status registers
+  // val state = Reg(UInt(8.W))
+  val busy = Mux(pop_prev_dependence && (!g2s_dep_queue_valid && g2s_dep_queue_wait), 1.U,
+             Mux(push_prev_dependence && !s2g_dep_queue_done, 1.U, 0.U))
+
+  // setup counter
+  when (enq_cntr_en && !enq_cntr_wait) {
+    when (enq_cntr_val < enq_cntr_max) {
+      enq_cntr_val := enq_cntr_val + 1.U
+    } .otherwise {
+      enq_cntr_val := enq_cntr_val
+    }
+  } .otherwise {
+    enq_cntr_val := enq_cntr_val
+  }
+
+  when (deq_cntr_en && !deq_cntr_wait) {
+    when (deq_cntr_val < deq_cntr_max) {
+      deq_cntr_val := deq_cntr_val + 1.U
+    } .otherwise {
+      deq_cntr_val := deq_cntr_val
+    }
+  } .otherwise {
+    deq_cntr_val := deq_cntr_val
+  }
+  
   // fetch instruction
-  when (io.store_queue.valid) {
+  when (io.store_queue.valid && !busy) {
     insn := io.store_queue.data
     io.store_queue.ready := 1.U
   } .otherwise {
@@ -62,18 +97,39 @@ class Store(implicit val p: Parameters) extends Module with CoreParams {
     io.store_queue.ready := 0.U
   }
 
-  val out_mem_addr = RegNext(acc_x_cntr_val)
-  io.out_mem.address := out_mem_addr
-  io.outputs.data := RegNext(io.out_mem.readdata)
-  io.out_mem.write := 0.U
-  io.out_mem.writedata := 0.U
-
-  when (acc_x_cntr_en) {
-    io.out_mem.read := 1.U
-    io.outputs.valid := 1.U
+  // dequeue g2s_dep_queue
+  when (pop_prev_dependence && io.g2s_dep_queue.valid) {
+    io.g2s_dep_queue.ready := 1.U
+    g2s_dep_queue_valid := 1.U
   } .otherwise {
-    io.outputs.valid := 0.U
-    io.out_mem.read := 0.U
+    io.g2s_dep_queue.ready := 0.U
   }
+
+  // enqueue from out_mem
+  io.out_mem.address := enq_cntr_val << 4.U
+  io.out_mem.write := RegNext(0.U)
+  io.out_mem.writedata <> DontCare
+  io.out_mem.read := enq_cntr_en
+
+  // setup fifo buffer behavior
+  out_queue.io.enq.valid := enq_cntr_en
+  out_queue.io.enq.bits := io.out_mem.readdata
+  out_queue.io.deq.ready := deq_cntr_en && !io.outputs.waitrequest
+
+  // dequeue fifo and send to outputs
+  io.outputs.write := deq_cntr_en && !io.outputs.waitrequest
+  io.outputs.writedata := out_queue.io.deq.bits
+  io.outputs.address := deq_cntr_val << 4.U
+  io.outputs.read := RegNext(0.U)
+
+  // enqueue s2g_dep_queue
+  io.s2g_dep_queue.data := RegNext(1.U)
+  when (push_prev_dependence && !s2g_dep_queue_done) {
+    io.s2g_dep_queue.valid := RegNext(1.U)
+    s2g_dep_queue_done := 1.U
+  } .otherwise {
+    io.s2g_dep_queue.valid := 0.U
+  }
+
 }
 
