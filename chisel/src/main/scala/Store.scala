@@ -51,39 +51,49 @@ class Store(implicit val p: Parameters) extends Module with CoreParams {
 
   // counters
   val enq_cntr_max = x_size * y_size
-  val enq_cntr_en = true.B
   val enq_cntr_wait = !out_queue.io.enq.ready || io.out_mem.waitrequest
   val enq_cntr_val = Reg(UInt(32.W))
-  val enq_cntr_wrap = 0.U
+  val enq_cntr_wrap = RegInit(0.U)
+  val enq_cntr_en = enq_cntr_val < enq_cntr_max
 
   val deq_cntr_max = x_size * y_size
   val deq_cntr_en = out_queue.io.deq.valid
   val deq_cntr_wait = io.outputs.waitrequest
   val deq_cntr_val = Reg(UInt(32.W))
-  val deq_cntr_wrap = 0.U
+  val deq_cntr_wrap = RegInit(0.U)
 
   // status registers
   // val state = Reg(UInt(8.W))
   val busy = Mux(pop_prev_dependence && (!g2s_dep_queue_valid && g2s_dep_queue_wait), 1.U,
-             Mux(push_prev_dependence && !s2g_dep_queue_done, 1.U, 0.U))
+             Mux(push_prev_dependence && !s2g_dep_queue_done, 1.U,
+             Mux((enq_cntr_en && !enq_cntr_wait) && (enq_cntr_val < enq_cntr_max), 1.U,
+             Mux((deq_cntr_en && !deq_cntr_wait) && (deq_cntr_val < deq_cntr_max), 1.U, 0.U))))
 
   // setup counter
   when (enq_cntr_en && !enq_cntr_wait) {
-    when (enq_cntr_val < enq_cntr_max) {
+    when (enq_cntr_en) {
       enq_cntr_val := enq_cntr_val + 1.U
     } .otherwise {
       enq_cntr_val := enq_cntr_val
+      enq_cntr_wrap := 1.U
     }
+  } .elsewhen (!busy) {
+    enq_cntr_val := 0.U
+    enq_cntr_wrap := 0.U
   } .otherwise {
     enq_cntr_val := enq_cntr_val
   }
 
   when (deq_cntr_en && !deq_cntr_wait) {
-    when (deq_cntr_val < deq_cntr_max) {
+    when (deq_cntr_en) {
       deq_cntr_val := deq_cntr_val + 1.U
     } .otherwise {
       deq_cntr_val := deq_cntr_val
+      deq_cntr_wrap := 1.U
     }
+  } .elsewhen (!busy) {
+    deq_cntr_val := 0.U
+    deq_cntr_wrap := 0.U
   } .otherwise {
     deq_cntr_val := deq_cntr_val
   }
@@ -105,21 +115,19 @@ class Store(implicit val p: Parameters) extends Module with CoreParams {
     io.g2s_dep_queue.ready := 0.U
   }
 
-  // enqueue from out_mem
-  io.out_mem.address := enq_cntr_val << 4.U
+  // enqueue from out_mem to fifo
+  io.out_mem.address := (sram_idx * batch.U + enq_cntr_val) << 4.U
   io.out_mem.write := RegNext(0.U)
   io.out_mem.writedata <> DontCare
   io.out_mem.read := enq_cntr_en
-
-  // setup fifo buffer behavior
-  out_queue.io.enq.valid := enq_cntr_en
+  out_queue.io.enq.valid := enq_cntr_en && !enq_cntr_wait
   out_queue.io.enq.bits := io.out_mem.readdata
-  out_queue.io.deq.ready := deq_cntr_en && !io.outputs.waitrequest
 
   // dequeue fifo and send to outputs
-  io.outputs.write := deq_cntr_en && !io.outputs.waitrequest
+  out_queue.io.deq.ready := deq_cntr_en && !deq_cntr_wait
+  io.outputs.write := deq_cntr_en
   io.outputs.writedata := out_queue.io.deq.bits
-  io.outputs.address := deq_cntr_val << 4.U
+  io.outputs.address := (dram_idx * batch.U + deq_cntr_val) << 4.U
   io.outputs.read := RegNext(0.U)
 
   // enqueue s2g_dep_queue
