@@ -50,6 +50,7 @@ abstract trait CoreParams {
   val log_wgt_width = p(LOG_WGT_WIDTH)
   val log_acc_width = p(LOG_ACC_WIDTH)
   val log_out_width = p(LOG_OUT_WIDTH)
+  val uop_width = 1 << log_uop_width
   val inp_width = 1 << p(LOG_INP_WIDTH)
   val wgt_width = 1 << p(LOG_WGT_WIDTH)
   val acc_width = 1 << p(LOG_ACC_WIDTH)

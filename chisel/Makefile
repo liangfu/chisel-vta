@@ -54,9 +54,7 @@ run-custom-bmark: $(custom_bmark_out)
 
 # unit tests + integration tests 
 test:
-	$(SBT) -v "test:runMain vta.Launcher Fetch Compute Store --backend-name verilator"
-
-# $(SBT) $(SBT_FLAGS) test
+	$(SBT) -v "test:runMain vta.Launcher Fetch Compute Store VTA --backend-name verilator"
 
 test_fetch:
 	$(SBT) -v "test:runMain vta.Launcher Fetch --backend-name verilator"
@@ -66,6 +64,9 @@ test_compute:
 
 test_store:
 	$(SBT) -v "test:runMain vta.Launcher Store --backend-name verilator"
+
+test_vta:
+	$(SBT) -v "test:runMain vta.Launcher VTA --backend-name verilator"
 
 clean:
 	rm -rf $(gen_dir) $(out_dir) test_run_dir

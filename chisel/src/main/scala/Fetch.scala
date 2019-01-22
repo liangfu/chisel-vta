@@ -6,7 +6,7 @@ import chisel3.util._
 import freechips.rocketchip.config.{Parameters, Field}
 
 class FetchIO(implicit p: Parameters) extends CoreBundle()(p) {
-  val insn_count = new AvalonSinkIO(dataBits = 16)
+  val insn_count = new AvalonSlaveIO(dataBits = 16)
   val insns = Flipped(new AvalonSlaveIO(dataBits = 128, addrBits = 32))
   val load_queue = Flipped(new AvalonSinkIO(dataBits = 128))
   val gemm_queue = Flipped(new AvalonSinkIO(dataBits = 128))
@@ -51,12 +51,13 @@ class Fetch(implicit val p: Parameters) extends Module with CoreParams {
   }
 
   // fetch insn_count
-  when (io.insn_count.valid && !busy) {
-    insn_count := io.insn_count.data
-    io.insn_count.ready := 1.U
+  io.insn_count.readdata <> DontCare
+  when (io.insn_count.write && !busy) {
+    insn_count := io.insn_count.writedata
+    io.insn_count.waitrequest := 0.U
   } .otherwise {
     insn_count := insn_count
-    io.insn_count.ready := 0.U
+    io.insn_count.waitrequest := 1.U
   }
 
   // fetch instructions

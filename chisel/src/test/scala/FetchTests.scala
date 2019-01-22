@@ -16,12 +16,12 @@ class FetchTests(c: Fetch)(implicit val p: freechips.rocketchip.config.Parameter
   val insn3 = "h00000008000800010000000000000029".U
 
   step(1)
-  poke(c.io.insn_count.data, insn_count)
-  poke(c.io.insn_count.valid, 0.U)
+  poke(c.io.insn_count.writedata, insn_count)
+  poke(c.io.insn_count.write, 0.U)
   step(1)
-  poke(c.io.insn_count.valid, 1.U)
+  poke(c.io.insn_count.write, 1.U)
   step(1)
-  poke(c.io.insn_count.valid, 0.U)
+  poke(c.io.insn_count.write, 0.U)
   poke(c.io.insns.readdata, insn0)
   poke(c.io.insns.waitrequest, 1.U)
   step(1)
