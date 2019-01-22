@@ -72,19 +72,20 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val uop_cntr_max = 1
   val uop_cntr_en = (opcode_load_en && memory_type_uop_en && started)
   val uop_cntr_wait = io.uops.waitrequest
-  val (uop_cntr_val, uop_cntr_wrap) = Counter(uop_cntr_en && !uop_cntr_wait, uop_cntr_max)
+  val uop_cntr_val = Reg(UInt(16.W))
+  val uop_cntr_wrap = RegNext((uop_cntr_val === (uop_cntr_max - 1).U) && uop_cntr_en)
 
   val acc_cntr_max = 8 * 4
   val acc_cntr_en = (opcode_load_en && memory_type_acc_en)
   val acc_cntr_wait = io.biases.waitrequest
-  // val (acc_cntr_val, acc_cntr_wrap) = Counter(acc_cntr_en && !acc_cntr_wait, acc_cntr_max)
   val acc_cntr_val = Reg(UInt(16.W))
-  val acc_cntr_wrap = Reg(UInt(1.W))
+  val acc_cntr_wrap = RegNext(acc_cntr_val === (acc_cntr_max - 1).U && acc_cntr_en)
 
   val out_cntr_max = 8
   val out_cntr_en = (opcode_alu_en || opcode_gemm_en)
   val out_cntr_wait = io.out_mem.waitrequest
-  val (out_cntr_val, out_cntr_wrap) = Counter(out_cntr_en && !out_cntr_wait, out_cntr_max)
+  val out_cntr_val = Reg(UInt(16.W))
+  val out_cntr_wrap = RegNext(out_cntr_val === (out_cntr_max - 1).U && out_cntr_en)
 
   // uops / biases
   val uops_read   = Reg(Bool())
@@ -96,10 +97,47 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val biases_addr = Reg(UInt(32.W))
 
   // status
-  val busy = Mux(opcode_load_en && memory_type_uop_en, 0.U,
-             Mux(acc_cntr_en && !acc_cntr_wrap, 1.U, 
-             Mux(out_cntr_en && !out_cntr_wrap, 1.U, 0.U)))
-  val done = 1.U(1.W)
+  val state = Reg(UInt(4.W))
+  val busy = state === 1.U
+
+  // update busy status
+  state := Mux(uop_cntr_en && !uop_cntr_wrap, 1.U,
+           Mux(acc_cntr_en && !acc_cntr_wrap, 1.U, 
+           Mux(out_cntr_en && !out_cntr_wrap, 1.U, 0.U)))
+
+  // setup counters
+  when (uops_read && !uop_cntr_wait && busy) {
+    when (uop_cntr_val < (uop_cntr_max - 1).U) {
+      uop_cntr_val := uop_cntr_val + 1.U
+    } .elsewhen (uop_cntr_val === (uop_cntr_max - 1).U) {
+      uop_cntr_val := uop_cntr_val + 1.U
+    } .otherwise {
+      uop_cntr_val := 0.U
+      state := 0.U
+    }
+  }
+
+  when (biases_read && !acc_cntr_wait && busy) {
+    when (acc_cntr_val < (acc_cntr_max - 1).U) {
+      acc_cntr_val := acc_cntr_val + 1.U
+    } .elsewhen (acc_cntr_val === (acc_cntr_max - 1).U) {
+      acc_cntr_val := acc_cntr_val + 1.U
+    } .otherwise {
+      acc_cntr_val := 0.U
+      state := 0.U
+    }
+  }
+
+  when (out_cntr_en && !out_cntr_wait && busy) {
+    when (out_cntr_val < (out_cntr_max - 1).U) {
+      out_cntr_val := out_cntr_val + 1.U
+    } .elsewhen (out_cntr_val === (out_cntr_max - 1).U) {
+      out_cntr_val := out_cntr_val + 1.U
+    } .otherwise {
+      out_cntr_val := 0.U
+      state := 0.U
+    }
+  }
 
   // fetch instruction
   when (io.gemm_queue.valid && !busy) {
@@ -126,7 +164,6 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   when (uops_read && !uop_cntr_wait) {
     uops_data := io.uops.readdata
   }
-  // write to uop_mem
   uop_mem(uop_sram_addr) := uops_data
 
   // fetch biases
@@ -140,23 +177,9 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   io.biases.writedata <> DontCare
   when (biases_read && !acc_cntr_wait) {
     biases_data(acc_cntr_val % ((block_out * acc_width) / 128).U) := io.biases.readdata
-    when (acc_cntr_val < (acc_cntr_max - 1).U) {
-      acc_cntr_val := acc_cntr_val + 1.U
-      acc_cntr_wrap := 0.U
-    } .elsewhen (acc_cntr_val === (acc_cntr_max - 1).U) {
-      acc_cntr_val := acc_cntr_val + 1.U
-      acc_cntr_wrap := 1.U
-    } .otherwise {
-      acc_cntr_val := 0.U
-      acc_cntr_wrap := 0.U
+    when (((acc_cntr_val) % ((block_out * acc_width) / 128).U) === 0.U) {
+      acc_mem(acc_sram_addr) := Cat(biases_data.init.reverse)
     }
-  }
-  // write to acc_mem
-  printf(p"(block_out * acc_width) / 128 = ${block_out} * ${acc_width} / 128\n")
-  when (((acc_cntr_val) % ((block_out * acc_width) / 128).U) === 0.U) {
-    printf(p"acc_cntr_val = ${acc_cntr_val}\n")
-    printf(p"acc_sram_addr = ${acc_sram_addr}\n")
-    acc_mem(acc_sram_addr) := Cat(biases_data.init.reverse)
   }
 
   // write to out_mem
@@ -246,7 +269,7 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   }
 
   io.out_mem.address := out_mem_addr
-  io.out_mem.read := 0.U
+  io.out_mem.read := DontCare
   io.out_mem.write := out_mem_write_en
   val alu_opcode_minmax_en = alu_opcode_min_en || alu_opcode_max_en
   val alu_opcode_add_en = (alu_opcode === alu_opcode_add.U)

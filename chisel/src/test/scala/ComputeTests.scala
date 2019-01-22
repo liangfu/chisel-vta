@@ -13,7 +13,8 @@ class ComputeTests(c: Compute)(implicit val p: freechips.rocketchip.config.Param
   val insn1 = "h00000008000800010000000000000180".U
   val insn2 = "h7ffe4002000008000010000800200044".U
 
-  poke(c.io.gemm_queue.data, 0.U)
+  def run() {
+
   poke(c.io.gemm_queue.valid, 0.U)
   poke(c.io.uops.readdata, 0.U)
   poke(c.io.uops.waitrequest, 1.U)
@@ -30,6 +31,8 @@ class ComputeTests(c: Compute)(implicit val p: freechips.rocketchip.config.Param
   poke(c.io.gemm_queue.valid, 1.U)
   step(1)
   step(1)
+  // step(1)
+
   expect(c.io.biases.read, 1.U)
   expect(c.io.biases.address, "h000".U)
   poke(c.io.biases.readdata, "hffffffeeffffffc6ffffffe9fffffff5".U) // data 0
@@ -118,10 +121,12 @@ class ComputeTests(c: Compute)(implicit val p: freechips.rocketchip.config.Param
   step(1)
   poke(c.io.biases.readdata, "hfffffffa0000003ffffffff50000002f".U)
   step(1)
+  step(1)
 
   step(1)
   poke(c.io.gemm_queue.valid, 0.U)
   poke(c.io.gemm_queue.data, insn0)
+  step(1)
   step(1)
   expect(c.io.out_mem.write, 1.U)
   expect(c.io.out_mem.address, 0.U)
@@ -129,12 +134,10 @@ class ComputeTests(c: Compute)(implicit val p: freechips.rocketchip.config.Param
   step(1)
   expect(c.io.out_mem.write, 1.U)
   expect(c.io.out_mem.address, "h10".U)
-  expect(c.io.out_mem.writedata, "hfcfcfbfcf3defcfafcfccdfcd3c6fcfc".U)
   // poke(c.io.out_mem.waitrequest, 1.U)
   // step(1)
-  // expect(c.io.out_mem.address, 1.U)
-  // expect(c.io.out_mem.writedata, "hfcfcfbfcf3defcfafcfccdfcd3c6fcfc".U)
-  // poke(c.io.out_mem.waitrequest, 0.U)
+  expect(c.io.out_mem.writedata, "hfcfcfbfcf3defcfafcfccdfcd3c6fcfc".U)
+  poke(c.io.out_mem.waitrequest, 0.U)
   step(1)
   expect(c.io.out_mem.write, 1.U)
   expect(c.io.out_mem.address, "h20".U)
@@ -156,6 +159,10 @@ class ComputeTests(c: Compute)(implicit val p: freechips.rocketchip.config.Param
   step(1)
   step(1)
 
+  }
+
+  run()
+  run()
 }
 
 class ComputeTester extends ChiselFlatSpec {
