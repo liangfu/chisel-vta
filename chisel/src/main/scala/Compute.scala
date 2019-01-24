@@ -136,14 +136,17 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   // reset counter values
   when (done) {
     state := 0.U
-    when (uop_cntr_wrap && uop_cntr_en) { uop_cntr_val := 0.U }
-    when (acc_cntr_wrap && acc_cntr_en) { acc_cntr_val := 0.U }
-    when (out_cntr_wrap && out_cntr_en) { out_cntr_val := 0.U }
+    // when (uop_cntr_wrap && uop_cntr_en) { uop_cntr_val := 0.U }
+    // when (acc_cntr_wrap && acc_cntr_en) { acc_cntr_val := 0.U }
+    // when (out_cntr_wrap && out_cntr_en) { out_cntr_val := 0.U }
   }
 
   // fetch instruction
   when (io.gemm_queue.valid && idle) {
     insn := io.gemm_queue.data
+    uop_cntr_val := 0.U
+    acc_cntr_val := 0.U
+    out_cntr_val := 0.U
     when (insn_valid) {
       io.gemm_queue.ready := 1.U
     } .otherwise {

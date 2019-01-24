@@ -130,6 +130,9 @@ class ComputeTests(c: Compute)(implicit val p: freechips.rocketchip.config.Param
   poke(c.io.biases.readdata, "hfffffffa0000003ffffffff50000002f".U)
   step(1)
   step(1)
+  step(1)
+  step(1)
+  step(1)
 
   step(1)
   poke(c.io.gemm_queue.valid, 1.U)
