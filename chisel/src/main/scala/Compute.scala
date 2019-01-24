@@ -70,22 +70,22 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
 
   // counters
   val uop_cntr_max = 1
-  val uop_cntr_en = (opcode_load_en && memory_type_uop_en && started)
+  val uop_cntr_en = (opcode_load_en && memory_type_uop_en && started && insn_valid)
   val uop_cntr_wait = io.uops.waitrequest
   val uop_cntr_val = Reg(UInt(16.W))
-  val uop_cntr_wrap = RegNext((uop_cntr_val === (uop_cntr_max - 1).U) && uop_cntr_en)
+  val uop_cntr_wrap = ((uop_cntr_val === uop_cntr_max.U) && uop_cntr_en)
 
   val acc_cntr_max = 8 * 4
-  val acc_cntr_en = (opcode_load_en && memory_type_acc_en)
+  val acc_cntr_en = (opcode_load_en && memory_type_acc_en && started && insn_valid)
   val acc_cntr_wait = io.biases.waitrequest
   val acc_cntr_val = Reg(UInt(16.W))
-  val acc_cntr_wrap = RegNext(acc_cntr_val === (acc_cntr_max - 1).U && acc_cntr_en)
+  val acc_cntr_wrap = ((acc_cntr_val === acc_cntr_max.U) && acc_cntr_en)
 
   val out_cntr_max = 8
-  val out_cntr_en = (opcode_alu_en || opcode_gemm_en)
+  val out_cntr_en = ((opcode_alu_en || opcode_gemm_en) && started && insn_valid)
   val out_cntr_wait = io.out_mem.waitrequest
   val out_cntr_val = Reg(UInt(16.W))
-  val out_cntr_wrap = RegNext(out_cntr_val === (out_cntr_max - 1).U && out_cntr_en)
+  val out_cntr_wrap = ((out_cntr_val === out_cntr_max.U) && out_cntr_en)
 
   // uops / biases
   val uops_read   = Reg(Bool())
@@ -98,7 +98,9 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
 
   // status
   val state = Reg(UInt(4.W))
+  val idle = state === 0.U
   val busy = state === 1.U
+  val done = state === 2.U
 
   // update busy status
   state := Mux(uop_cntr_en && !uop_cntr_wrap, 1.U,
@@ -107,42 +109,46 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
 
   // setup counters
   when (uops_read && !uop_cntr_wait && busy) {
-    when (uop_cntr_val < (uop_cntr_max - 1).U) {
-      uop_cntr_val := uop_cntr_val + 1.U
-    } .elsewhen (uop_cntr_val === (uop_cntr_max - 1).U) {
+    when (uop_cntr_val < uop_cntr_max.U) {
       uop_cntr_val := uop_cntr_val + 1.U
     } .otherwise {
-      uop_cntr_val := 0.U
-      state := 0.U
+      uop_cntr_val := uop_cntr_val
+      state := 2.U
     }
   }
-
   when (biases_read && !acc_cntr_wait && busy) {
-    when (acc_cntr_val < (acc_cntr_max - 1).U) {
-      acc_cntr_val := acc_cntr_val + 1.U
-    } .elsewhen (acc_cntr_val === (acc_cntr_max - 1).U) {
+    when (acc_cntr_val < acc_cntr_max.U) {
       acc_cntr_val := acc_cntr_val + 1.U
     } .otherwise {
-      acc_cntr_val := 0.U
-      state := 0.U
+      acc_cntr_val := acc_cntr_val
+      state := 2.U
+    }
+  }
+  when (out_cntr_en && !out_cntr_wait && busy) {
+    when (out_cntr_val < out_cntr_max.U) {
+      out_cntr_val := out_cntr_val + 1.U
+    } .otherwise {
+      out_cntr_val := out_cntr_val
+      state := 2.U
     }
   }
 
-  when (out_cntr_en && !out_cntr_wait && busy) {
-    when (out_cntr_val < (out_cntr_max - 1).U) {
-      out_cntr_val := out_cntr_val + 1.U
-    } .elsewhen (out_cntr_val === (out_cntr_max - 1).U) {
-      out_cntr_val := out_cntr_val + 1.U
-    } .otherwise {
-      out_cntr_val := 0.U
-      state := 0.U
-    }
+  // reset counter values
+  when (done) {
+    state := 0.U
+    when (uop_cntr_wrap && uop_cntr_en) { uop_cntr_val := 0.U }
+    when (acc_cntr_wrap && acc_cntr_en) { acc_cntr_val := 0.U }
+    when (out_cntr_wrap && out_cntr_en) { out_cntr_val := 0.U }
   }
 
   // fetch instruction
-  when (io.gemm_queue.valid && !busy) {
+  when (io.gemm_queue.valid && idle) {
     insn := io.gemm_queue.data
-    io.gemm_queue.ready := 1.U
+    when (insn_valid) {
+      io.gemm_queue.ready := 1.U
+    } .otherwise {
+      io.gemm_queue.ready := 0.U
+    }
   } .otherwise {
     insn := insn
     io.gemm_queue.ready := 0.U
@@ -156,7 +162,7 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val uop_mem_write_en = (opcode_load_en && (memory_type === mem_id_uop.U))
   val uop_dram_addr = (dram_idx + uop_cntr_val) << log2Ceil(uop_width / 8).U
   val uop_sram_addr = (sram_idx + uop_cntr_val) 
-  uops_read := uop_cntr_en
+  uops_read := uop_cntr_en && !uop_cntr_wrap
   io.uops.read := uops_read
   io.uops.address := uop_dram_addr // uops_addr
   io.uops.write <> DontCare
@@ -170,7 +176,7 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val acc_dram_addr = (((dram_idx + y_offset + x_pad_0) * batch.U + acc_cntr_val) << 4.U)
   val acc_sram_addr = (((sram_idx + y_offset + x_pad_0) * batch.U + acc_cntr_val) >> 2.U) - 1.U
   biases_addr := acc_dram_addr
-  biases_read := acc_cntr_en
+  biases_read := acc_cntr_en && !done
   io.biases.address := acc_dram_addr // biases_addr
   io.biases.read := biases_read
   io.biases.write <> DontCare
@@ -275,40 +281,6 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val alu_opcode_add_en = (alu_opcode === alu_opcode_add.U)
   io.out_mem.writedata := Mux(alu_opcode_minmax_en, Cat(short_cmp_res.init.reverse),
                           Mux(alu_opcode_add_en, Cat(short_add_res.init.reverse), Cat(short_shr_res.init.reverse)))
-
-  // when ((insn_valid) && acc_cntr_en) {
-  //   printf(p"x_pad_0 = 0x${Hexadecimal(x_pad_0)}\n")
-  //   printf(p"x_pad_1 = 0x${Hexadecimal(x_pad_1)}\n")
-  //   printf(p"y_size = 0x${Hexadecimal(y_size)}\n")
-  //   printf(p"x_size = 0x${Hexadecimal(x_size)}\n")
-  //   printf(p"acc_cntr_en = 0x${Hexadecimal(acc_cntr_en)}\n")
-  //   printf(p"acc_cntr_val = 0x${Hexadecimal(acc_cntr_val)}\n")
-  //   printf(p"acc_cntr_wrap = 0x${Hexadecimal(acc_cntr_wrap)}\n")
-  //   printf(p"acc_mem_addr = 0x${Hexadecimal(acc_mem_addr)}\n")
-  //   printf(p"io.biases.data = 0x${Hexadecimal(io.biases.data)}\n")
-  // }
-  // when ((insn_valid) && out_cntr_en) {
-  //   printf(p"iter_out = 0x${Hexadecimal(iter_out)}\n")
-  //   printf(p"iter_in = 0x${Hexadecimal(iter_in)}\n")
-  //   printf(p"uop_bgn = 0x${Hexadecimal(uop_bgn)}\n")
-  //   printf(p"uop_end = 0x${Hexadecimal(uop_end)}\n")
-  //   printf(p"batch = 0x${Hexadecimal(batch.U)}\n")
-  //   printf(p"block_out = 0x${Hexadecimal(block_out.U)}\n")
-  //   printf(p"out_cntr_val = 0x${Hexadecimal(out_cntr_val)}\n")
-  //   printf(p"out_cntr_wrap = 0x${Hexadecimal(out_cntr_wrap)}\n")
-  //   printf(p"uop = 0x${Hexadecimal(uop)}\n")
-  //   printf(p"dst_idx = 0x${Hexadecimal(dst_idx)}\n")
-  //   printf(p"src_idx = 0x${Hexadecimal(src_idx)}\n")
-  //   printf(p"use_imm = 0x${Hexadecimal(use_imm)}\n")
-  //   printf(p"imm = 0x${Hexadecimal(imm)}\n")
-  //   printf(p"acc_width = 0x${Hexadecimal(acc_width.U)}\n")
-  //   printf(p"out_width = 0x${Hexadecimal(out_width.U)}\n")
-  //   printf(p"out_mem_addr = 0x${Hexadecimal(out_mem_addr)}\n")
-  //   printf(p"short_cmp_res = 0x${Hexadecimal(Cat(short_cmp_res.init.reverse))}\n")
-  // }
-  // when (insn_valid) {
-  //   printf(p"=======================================\n")
-  // }
 
   val g2l_queue = Module(new BinaryQueue(UInt(1.W), 16))
   val g2s_queue = Module(new BinaryQueue(UInt(1.W), 16))
