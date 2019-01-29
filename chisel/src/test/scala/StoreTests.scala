@@ -17,76 +17,66 @@ class StoreTests(c: Store)(implicit val p: freechips.rocketchip.config.Parameter
     "hf8e1fcf3fcfcdcd3fcfcfcfcfcfcfce3".U, "hfcfcfcfcfcfce9fcfafce9cafcfccefc".U,
     "hd3fcfce7f2d2fcfcfcfcfcfcfcfcdef1".U, "hfafcf5fcfcc8d6fafcf1fcfcf6fcfcfc".U)
 
-  poke(c.io.out_mem.waitrequest, 1.U)
-  poke(c.io.outputs.waitrequest, 1.U)
+  def run() {
+
+  poke(c.io.out_mem.waitrequest, 0.U)
   step(1)
   poke(c.io.store_queue.data, insn0)
   poke(c.io.store_queue.valid, 1.U)
   step(1)
   poke(c.io.store_queue.valid, 0.U)
   step(1)
+  poke(c.io.out_mem.waitrequest, 1.U)              // enqueue
+  poke(c.io.g2s_dep_queue.valid, 1.U)
+  poke(c.io.g2s_dep_queue.data, 1.U)
+  step(1)
+  expect(c.io.g2s_dep_queue.ready, 1.U)
+  step(1)
   poke(c.io.out_mem.waitrequest, 0.U)              // enqueue
+  expect(c.io.out_mem.address, 0.U)
   poke(c.io.out_mem.readdata, out_mem(0))
   step(1)
+  poke(c.io.outputs.waitrequest, 1.U)
   poke(c.io.out_mem.readdata, out_mem(1))
   step(1)
   poke(c.io.out_mem.readdata, out_mem(2))
   step(1)
   poke(c.io.out_mem.readdata, out_mem(3))
   poke(c.io.outputs.waitrequest, 0.U)              // dequeue
-  step(1)
-  poke(c.io.out_mem.readdata, out_mem(4))
-  step(1)
-  poke(c.io.out_mem.readdata, out_mem(5))
-  step(1)
-  poke(c.io.out_mem.readdata, out_mem(6))
-  step(1)
-  poke(c.io.out_mem.readdata, out_mem(7))
-  step(1)
-  poke(c.io.out_mem.waitrequest, 1.U)               // stop enqueue
-  step(1)
-  poke(c.io.outputs.waitrequest, 1.U)
-  step(1)
-  poke(c.io.outputs.waitrequest, 0.U)
-  step(1)
-
-  poke(c.io.out_mem.waitrequest, 1.U)
-  poke(c.io.outputs.waitrequest, 1.U)
-  step(1)
-  poke(c.io.store_queue.data, insn0)
-  poke(c.io.store_queue.valid, 1.U)
-  step(1)
-  poke(c.io.store_queue.valid, 0.U)
+  poke(c.io.out_mem.waitrequest, 1.U)              // enqueue
   step(1)
   poke(c.io.out_mem.waitrequest, 0.U)              // enqueue
-  poke(c.io.out_mem.readdata, out_mem(0))
-  step(1)
-  poke(c.io.out_mem.readdata, out_mem(1))
-  step(1)
-  poke(c.io.out_mem.readdata, out_mem(2))
-  step(1)
-  poke(c.io.out_mem.readdata, out_mem(3))
-  poke(c.io.outputs.waitrequest, 0.U)              // dequeue
+  expect(c.io.out_mem.read, 1.U)              // enqueue
   step(1)
   poke(c.io.out_mem.readdata, out_mem(4))
   step(1)
   poke(c.io.out_mem.readdata, out_mem(5))
   step(1)
+  poke(c.io.outputs.waitrequest, 1.U)
   poke(c.io.out_mem.readdata, out_mem(6))
   step(1)
+  poke(c.io.outputs.waitrequest, 0.U)
   poke(c.io.out_mem.readdata, out_mem(7))
   step(1)
-  poke(c.io.out_mem.waitrequest, 1.U)               // stop enqueue
+  // poke(c.io.out_mem.waitrequest, 1.U)               // stop enqueue
   step(1)
-  poke(c.io.outputs.waitrequest, 1.U)
   step(1)
   poke(c.io.outputs.waitrequest, 0.U)
   step(1)
 
   step(1)
+  expect(c.io.s2g_dep_queue.valid, 1.U)
+  poke(c.io.s2g_dep_queue.ready, 1.U)
+  step(1)
+  step(1)
+  step(1)
   step(1)
   step(1)
 
+  }
+
+  run()
+  run()
 }
 
 class StoreTester extends ChiselFlatSpec {

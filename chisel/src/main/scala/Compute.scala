@@ -85,13 +85,13 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val uop_cntr_wrap = ((uop_cntr_val === uop_cntr_max.U) && uop_cntr_en && !idle)
 
   val acc_cntr_max = 8 * 4
-  val acc_cntr_en = (opcode_load_en && memory_type_acc_en && started && insn_valid)
+  val acc_cntr_en = (opcode_load_en && memory_type_acc_en && insn_valid)
   val acc_cntr_wait = io.biases.waitrequest
   val acc_cntr_val = Reg(UInt(16.W))
   val acc_cntr_wrap = ((acc_cntr_val === acc_cntr_max.U) && acc_cntr_en && !idle)
 
   val out_cntr_max = 8
-  val out_cntr_en = ((opcode_alu_en || opcode_gemm_en) && started && insn_valid)
+  val out_cntr_en = ((opcode_alu_en || opcode_gemm_en) && insn_valid)
   val out_cntr_wait = io.out_mem.waitrequest
   val out_cntr_val = Reg(UInt(16.W))
   val out_cntr_wrap = ((out_cntr_val === out_cntr_max.U) && out_cntr_en && !idle)
@@ -99,11 +99,9 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   // uops / biases
   val uops_read   = Reg(Bool())
   val uops_data   = Reg(UInt(32.W))
-  val uops_addr   = Reg(UInt(32.W))
 
   val biases_read = Reg(Bool())
   val biases_data = Reg(Vec((block_out * acc_width) / 128 + 1, UInt(128.W)))
-  val biases_addr = Reg(UInt(32.W))
 
   // dependency queue status
   val pop_prev_dep_ready = RegInit(false.B)
@@ -207,7 +205,7 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val uop_sram_addr = (sram_idx + uop_cntr_val) 
   uops_read := uop_cntr_en && !uop_cntr_wrap
   io.uops.read := uops_read
-  io.uops.address := uop_dram_addr // uops_addr
+  io.uops.address := uop_dram_addr
   io.uops.write <> DontCare
   io.uops.writedata <> DontCare
   when (uops_read && !uop_cntr_wait) {
@@ -218,9 +216,8 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   // fetch biases
   val acc_dram_addr = (((dram_idx + y_offset + x_pad_0) * batch.U + acc_cntr_val) << 4.U)
   val acc_sram_addr = (((sram_idx + y_offset + x_pad_0) * batch.U + acc_cntr_val) >> 2.U) - 1.U
-  biases_addr := acc_dram_addr
   biases_read := acc_cntr_en && !done
-  io.biases.address := acc_dram_addr // biases_addr
+  io.biases.address := acc_dram_addr
   io.biases.read := biases_read
   io.biases.write <> DontCare
   io.biases.writedata <> DontCare
