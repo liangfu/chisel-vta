@@ -20,7 +20,7 @@ class ComputeIO(implicit p: Parameters) extends CoreBundle()(p) {
   val out_mem = Flipped(new AvalonSlaveIO(dataBits = 128, addrBits = 17))
 }
 
-class BinaryQueue[T <: Data](gen: T, entries: Int) extends Queue (gen, entries) {}
+class DepQueue[T <: Data](gen: T, entries: Int) extends Queue (gen, entries) {}
 
 class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val io = IO(new ComputeIO)
@@ -68,24 +68,30 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val memory_type_uop_en = memory_type === mem_id_uop.U
   val memory_type_acc_en = memory_type === mem_id_acc.U
 
+  // status
+  val state = RegInit(0.U(2.W))
+  val idle = state === 0.U
+  val busy = state === 1.U
+  val done = state === 2.U
+
   // counters
   val uop_cntr_max = 1
   val uop_cntr_en = (opcode_load_en && memory_type_uop_en && started && insn_valid)
   val uop_cntr_wait = io.uops.waitrequest
   val uop_cntr_val = Reg(UInt(16.W))
-  val uop_cntr_wrap = ((uop_cntr_val === uop_cntr_max.U) && uop_cntr_en)
+  val uop_cntr_wrap = ((uop_cntr_val === uop_cntr_max.U) && uop_cntr_en && !idle)
 
   val acc_cntr_max = 8 * 4
   val acc_cntr_en = (opcode_load_en && memory_type_acc_en && started && insn_valid)
   val acc_cntr_wait = io.biases.waitrequest
   val acc_cntr_val = Reg(UInt(16.W))
-  val acc_cntr_wrap = ((acc_cntr_val === acc_cntr_max.U) && acc_cntr_en)
+  val acc_cntr_wrap = ((acc_cntr_val === acc_cntr_max.U) && acc_cntr_en && !idle)
 
   val out_cntr_max = 8
   val out_cntr_en = ((opcode_alu_en || opcode_gemm_en) && started && insn_valid)
   val out_cntr_wait = io.out_mem.waitrequest
   val out_cntr_val = Reg(UInt(16.W))
-  val out_cntr_wrap = ((out_cntr_val === out_cntr_max.U) && out_cntr_en)
+  val out_cntr_wrap = ((out_cntr_val === out_cntr_max.U) && out_cntr_en && !idle)
 
   // uops / biases
   val uops_read   = Reg(Bool())
@@ -96,49 +102,28 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val biases_data = Reg(Vec((block_out * acc_width) / 128 + 1, UInt(128.W)))
   val biases_addr = Reg(UInt(32.W))
 
-  // status
-  val state = Reg(UInt(4.W))
-  val idle = state === 0.U
-  val busy = state === 1.U
-  val done = state === 2.U
-
   // update busy status
-  state := Mux(uop_cntr_en && !uop_cntr_wrap, 1.U,
-           Mux(acc_cntr_en && !acc_cntr_wrap, 1.U, 
-           Mux(out_cntr_en && !out_cntr_wrap, 1.U, 0.U)))
+  when (uop_cntr_en && !uop_cntr_wrap) { state := 1.U }
+  when (acc_cntr_en && !acc_cntr_wrap) { state := 1.U }
+  when (out_cntr_en && !out_cntr_wrap) { state := 1.U }
+  when (uops_read   && uop_cntr_wrap) { state := 2.U }
+  when (biases_read && acc_cntr_wrap) { state := 2.U }
+  when (out_cntr_en && out_cntr_wrap) { state := 2.U }
 
   // setup counters
-  when (uops_read && !uop_cntr_wait && busy) {
-    when (uop_cntr_val < uop_cntr_max.U) {
-      uop_cntr_val := uop_cntr_val + 1.U
-    } .otherwise {
-      uop_cntr_val := uop_cntr_val
-      state := 2.U
-    }
+  when (uops_read && !uop_cntr_wait && busy && uop_cntr_val < uop_cntr_max.U) {
+    uop_cntr_val := uop_cntr_val + 1.U
   }
-  when (biases_read && !acc_cntr_wait && busy) {
-    when (acc_cntr_val < acc_cntr_max.U) {
-      acc_cntr_val := acc_cntr_val + 1.U
-    } .otherwise {
-      acc_cntr_val := acc_cntr_val
-      state := 2.U
-    }
+  when (biases_read && !acc_cntr_wait && busy && acc_cntr_val < acc_cntr_max.U) {
+    acc_cntr_val := acc_cntr_val + 1.U
   }
-  when (out_cntr_en && !out_cntr_wait && busy) {
-    when (out_cntr_val < out_cntr_max.U) {
-      out_cntr_val := out_cntr_val + 1.U
-    } .otherwise {
-      out_cntr_val := out_cntr_val
-      state := 2.U
-    }
+  when (out_cntr_en && !out_cntr_wait && busy && out_cntr_val < out_cntr_max.U) {
+    out_cntr_val := out_cntr_val + 1.U
   }
 
   // reset counter values
   when (done) {
     state := 0.U
-    // when (uop_cntr_wrap && uop_cntr_en) { uop_cntr_val := 0.U }
-    // when (acc_cntr_wrap && acc_cntr_en) { acc_cntr_val := 0.U }
-    // when (out_cntr_wrap && out_cntr_en) { out_cntr_val := 0.U }
   }
 
   // fetch instruction
@@ -285,8 +270,8 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   io.out_mem.writedata := Mux(alu_opcode_minmax_en, Cat(short_cmp_res.init.reverse),
                           Mux(alu_opcode_add_en, Cat(short_add_res.init.reverse), Cat(short_shr_res.init.reverse)))
 
-  val g2l_queue = Module(new BinaryQueue(UInt(1.W), 16))
-  val g2s_queue = Module(new BinaryQueue(UInt(1.W), 16))
+  val g2l_queue = Module(new DepQueue(UInt(1.W), 16))
+  val g2s_queue = Module(new DepQueue(UInt(1.W), 16))
   g2l_queue.io.deq.valid <> io.g2l_dep_queue.valid
   g2l_queue.io.deq.ready <> io.g2l_dep_queue.ready
   g2l_queue.io.deq.bits  <> io.g2l_dep_queue.data
