@@ -34,7 +34,7 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val uop_mem = Mem(1 << 10, UInt(32.W))
 
   val insn            = Reg(UInt(128.W))
-  val insn_valid      = insn =/= 0.U
+  val insn_valid      = (insn =/= 0.U) && started
 
   val opcode          = insn(insn_mem_0_1, insn_mem_0_0)
   val pop_prev_dep    = insn(insn_mem_1)
@@ -69,14 +69,17 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val memory_type_acc_en = memory_type === mem_id_acc.U
 
   // status
-  val state = RegInit(0.U(2.W))
-  val idle = state === 0.U
-  val busy = state === 1.U
-  val done = state === 2.U
+  val state = RegInit(0.U(3.W))
+  val s_IDLE :: s_DUMP :: s_BUSY :: s_PUSH :: s_DONE :: Nil = Enum(5)
+  val idle = state === s_IDLE
+  val dump = state === s_DUMP
+  val busy = state === s_BUSY
+  val push = state === s_PUSH
+  val done = state === s_DONE
 
   // counters
   val uop_cntr_max = 1
-  val uop_cntr_en = (opcode_load_en && memory_type_uop_en && started && insn_valid)
+  val uop_cntr_en = (opcode_load_en && memory_type_uop_en && insn_valid)
   val uop_cntr_wait = io.uops.waitrequest
   val uop_cntr_val = Reg(UInt(16.W))
   val uop_cntr_wrap = ((uop_cntr_val === uop_cntr_max.U) && uop_cntr_en && !idle)
@@ -102,13 +105,66 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val biases_data = Reg(Vec((block_out * acc_width) / 128 + 1, UInt(128.W)))
   val biases_addr = Reg(UInt(32.W))
 
+  // dependency queue status
+  val pop_prev_dep_ready = RegInit(false.B)
+  val pop_next_dep_ready = RegInit(false.B)
+  val push_prev_dep_valid = push_prev_dep && push
+  val push_next_dep_valid = push_next_dep && push
+  val push_prev_dep_ready = RegInit(false.B)
+  val push_next_dep_ready = RegInit(false.B)
+
   // update busy status
-  when (uop_cntr_en && !uop_cntr_wrap) { state := 1.U }
-  when (acc_cntr_en && !acc_cntr_wrap) { state := 1.U }
-  when (out_cntr_en && !out_cntr_wrap) { state := 1.U }
-  when (uops_read   && uop_cntr_wrap) { state := 2.U }
-  when (biases_read && acc_cntr_wrap) { state := 2.U }
-  when (out_cntr_en && out_cntr_wrap) { state := 2.U }
+  when ((uop_cntr_en && !uop_cntr_wrap) ||
+        (acc_cntr_en && !acc_cntr_wrap) ||
+        (out_cntr_en && !out_cntr_wrap)) {
+    when ((pop_prev_dep && !pop_prev_dep_ready) ||
+          (pop_next_dep && !pop_next_dep_ready)) {
+      state := s_DUMP
+    } .otherwise {
+      state := s_BUSY
+    }
+  }
+  when ((uops_read   && uop_cntr_wrap) ||
+        (biases_read && acc_cntr_wrap) ||
+        (out_cntr_en && out_cntr_wrap)) {
+    when ((push_prev_dep && !push_prev_dep_ready) ||
+          (push_next_dep && !push_next_dep_ready)) {
+      state := s_PUSH
+    } .otherwise {
+      state := s_DONE
+    }
+  }
+
+  // dependency queue processing
+  when (dump && ( pop_prev_dep_ready ||  pop_next_dep_ready)) { state := s_BUSY }
+  when (push && (push_prev_dep_ready || push_next_dep_ready)) { state := s_DONE }
+
+  // reset idle status
+  // when (done) {
+  //   state := s_IDLE
+  // }
+
+  // dependency queue processing
+  io.l2g_dep_queue.ready := pop_prev_dep_ready
+  io.s2g_dep_queue.ready := pop_next_dep_ready
+  io.l2g_dep_queue.data <> DontCare
+  io.s2g_dep_queue.data <> DontCare
+  when (pop_prev_dep && dump && io.l2g_dep_queue.valid) {
+    pop_prev_dep_ready := true.B
+  }
+  when (pop_next_dep && dump && io.s2g_dep_queue.valid) {
+    pop_next_dep_ready := true.B
+  }
+  io.g2l_dep_queue.data := 1.U
+  io.g2s_dep_queue.data := 1.U
+  io.g2l_dep_queue.valid := push_prev_dep_valid
+  io.g2s_dep_queue.valid := push_next_dep_valid
+  when (push_prev_dep_valid && io.g2l_dep_queue.ready && push) {
+    push_prev_dep_ready := true.B
+  }
+  when (push_next_dep_valid && io.g2s_dep_queue.ready && push) {
+    push_next_dep_ready := true.B
+  }
 
   // setup counters
   when (uops_read && !uop_cntr_wait && busy && uop_cntr_val < uop_cntr_max.U) {
@@ -121,17 +177,16 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
     out_cntr_val := out_cntr_val + 1.U
   }
 
-  // reset counter values
-  when (done) {
-    state := 0.U
-  }
-
   // fetch instruction
-  when (io.gemm_queue.valid && idle) {
+  when (io.gemm_queue.valid && (idle || done)) {
     insn := io.gemm_queue.data
     uop_cntr_val := 0.U
     acc_cntr_val := 0.U
     out_cntr_val := 0.U
+    pop_prev_dep_ready := false.B
+    pop_next_dep_ready := false.B
+    push_prev_dep_ready := false.B
+    push_next_dep_ready := false.B
     when (insn_valid) {
       io.gemm_queue.ready := 1.U
     } .otherwise {
@@ -262,6 +317,7 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
     }
   }
 
+  // write to out_mem interface
   io.out_mem.address := out_mem_addr
   io.out_mem.read := DontCare
   io.out_mem.write := out_mem_write_en
@@ -269,23 +325,4 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val alu_opcode_add_en = (alu_opcode === alu_opcode_add.U)
   io.out_mem.writedata := Mux(alu_opcode_minmax_en, Cat(short_cmp_res.init.reverse),
                           Mux(alu_opcode_add_en, Cat(short_add_res.init.reverse), Cat(short_shr_res.init.reverse)))
-
-  val g2l_queue = Module(new DepQueue(UInt(1.W), 16))
-  val g2s_queue = Module(new DepQueue(UInt(1.W), 16))
-  g2l_queue.io.deq.valid <> io.g2l_dep_queue.valid
-  g2l_queue.io.deq.ready <> io.g2l_dep_queue.ready
-  g2l_queue.io.deq.bits  <> io.g2l_dep_queue.data
-  g2s_queue.io.deq.valid <> io.g2s_dep_queue.valid
-  g2s_queue.io.deq.ready <> io.g2s_dep_queue.ready
-  g2s_queue.io.deq.bits  <> io.g2s_dep_queue.data
-
-  g2l_queue.io.enq.bits := 1.U
-  g2s_queue.io.enq.bits := 1.U
-  g2l_queue.io.enq.valid := Mux(push_prev_dep && out_cntr_wrap.toBool, 1.U, 0.U)
-  g2s_queue.io.enq.valid := Mux(push_next_dep && out_cntr_wrap.toBool, 1.U, 0.U)
-  g2l_queue.io.enq.ready <> DontCare
-  g2s_queue.io.enq.ready <> DontCare
-
-  io.l2g_dep_queue <> DontCare
-  io.s2g_dep_queue <> DontCare
 }

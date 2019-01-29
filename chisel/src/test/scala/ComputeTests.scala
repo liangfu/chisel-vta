@@ -162,6 +162,7 @@ class ComputeTests(c: Compute)(implicit val p: freechips.rocketchip.config.Param
   step(1)
   step(1)
   poke(c.io.g2s_dep_queue.ready, 1.U)
+  expect(c.io.g2s_dep_queue.valid, 1.U)
   step(1)
   poke(c.io.g2s_dep_queue.ready, 0.U)
   step(1)
