@@ -82,26 +82,28 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val uop_cntr_en = (opcode_load_en && memory_type_uop_en && insn_valid)
   val uop_cntr_wait = io.uops.waitrequest
   val uop_cntr_val = Reg(UInt(16.W))
-  val uop_cntr_wrap = ((uop_cntr_val === uop_cntr_max.U) && uop_cntr_en && !idle)
+  val uop_cntr_wrap = ((uop_cntr_val === uop_cntr_max.U) && uop_cntr_en && busy)
 
   val acc_cntr_max = 8 * 4
   val acc_cntr_en = (opcode_load_en && memory_type_acc_en && insn_valid)
   val acc_cntr_wait = io.biases.waitrequest
   val acc_cntr_val = Reg(UInt(16.W))
-  val acc_cntr_wrap = ((acc_cntr_val === acc_cntr_max.U) && acc_cntr_en && !idle)
+  val acc_cntr_wrap = ((acc_cntr_val === acc_cntr_max.U) && acc_cntr_en && busy)
 
   val out_cntr_max = 8
   val out_cntr_en = ((opcode_alu_en || opcode_gemm_en) && insn_valid)
   val out_cntr_wait = io.out_mem.waitrequest
   val out_cntr_val = Reg(UInt(16.W))
-  val out_cntr_wrap = ((out_cntr_val === out_cntr_max.U) && out_cntr_en && !idle)
+  val out_cntr_wrap = ((out_cntr_val === out_cntr_max.U) && out_cntr_en && busy)
 
-  // uops / biases
+  // uops / biases / out_mem
   val uops_read   = Reg(Bool())
   val uops_data   = Reg(UInt(32.W))
 
   val biases_read = Reg(Bool())
   val biases_data = Reg(Vec((block_out * acc_width) / 128 + 1, UInt(128.W)))
+
+  val out_mem_write  = RegInit(false.B)
 
   // dependency queue status
   val pop_prev_dep_ready = RegInit(false.B)
@@ -111,17 +113,9 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val push_prev_dep_ready = RegInit(false.B)
   val push_next_dep_ready = RegInit(false.B)
 
+  val gemm_queue_ready = RegInit(false.B)
+
   // update busy status
-  when ((uop_cntr_en && !uop_cntr_wrap) ||
-        (acc_cntr_en && !acc_cntr_wrap) ||
-        (out_cntr_en && !out_cntr_wrap)) {
-    when ((pop_prev_dep && !pop_prev_dep_ready) ||
-          (pop_next_dep && !pop_next_dep_ready)) {
-      state := s_DUMP
-    } .otherwise {
-      state := s_BUSY
-    }
-  }
   when ((uops_read   && uop_cntr_wrap) ||
         (biases_read && acc_cntr_wrap) ||
         (out_cntr_en && out_cntr_wrap)) {
@@ -136,11 +130,6 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   // dependency queue processing
   when (dump && ( pop_prev_dep_ready ||  pop_next_dep_ready)) { state := s_BUSY }
   when (push && (push_prev_dep_ready || push_next_dep_ready)) { state := s_DONE }
-
-  // reset idle status
-  // when (done) {
-  //   state := s_IDLE
-  // }
 
   // dependency queue processing
   io.l2g_dep_queue.ready := pop_prev_dep_ready
@@ -171,12 +160,12 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   when (biases_read && !acc_cntr_wait && busy && acc_cntr_val < acc_cntr_max.U) {
     acc_cntr_val := acc_cntr_val + 1.U
   }
-  when (out_cntr_en && !out_cntr_wait && busy && out_cntr_val < out_cntr_max.U) {
+  when (out_mem_write && !out_cntr_wait && busy && out_cntr_val < out_cntr_max.U) {
     out_cntr_val := out_cntr_val + 1.U
   }
 
   // fetch instruction
-  when (io.gemm_queue.valid && (idle || done)) {
+  when (gemm_queue_ready) {
     insn := io.gemm_queue.data
     uop_cntr_val := 0.U
     acc_cntr_val := 0.U
@@ -185,15 +174,18 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
     pop_next_dep_ready := false.B
     push_prev_dep_ready := false.B
     push_next_dep_ready := false.B
-    when (insn_valid) {
-      io.gemm_queue.ready := 1.U
+    when ((pop_prev_dep && !pop_prev_dep_ready) ||
+          (pop_next_dep && !pop_next_dep_ready)) {
+      state := s_DUMP
     } .otherwise {
-      io.gemm_queue.ready := 0.U
+      state := s_BUSY
     }
   } .otherwise {
     insn := insn
-    io.gemm_queue.ready := 0.U
   }
+  gemm_queue_ready := io.gemm_queue.valid && (idle || done) // && insn_valid
+  io.gemm_queue.ready := gemm_queue_ready
+  when (gemm_queue_ready) { gemm_queue_ready := false.B }
 
   // response to done signal
   io.done.waitrequest := 0.U
@@ -248,8 +240,15 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val src_idx = uop(uop_alu_1_1, uop_alu_1_0) + src_offset_in
 
   // build alu
-  val dst_vector = RegNext(acc_mem(dst_idx))
-  val src_vector = RegNext(acc_mem(src_idx))
+  val dst_vector = Reg(UInt((block_out * acc_width).W)) // RegNext(acc_mem(dst_idx))
+  val src_vector = Reg(UInt((block_out * acc_width).W)) // RegNext(acc_mem(src_idx))
+  when (out_mem_write && !out_cntr_wait) {
+    dst_vector := acc_mem(dst_idx + 1.U)
+    src_vector := acc_mem(src_idx + 1.U)
+  } .otherwise {
+    dst_vector := dst_vector
+    src_vector := src_vector
+  }
   val cmp_res       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
   val short_cmp_res = Wire(Vec(block_out + 1, UInt(out_width.W)))
   val add_res       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
@@ -262,8 +261,6 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   val mix_val       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
   val add_val       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
   val shr_val       = Wire(Vec(block_out + 1, SInt(acc_width.W)))
-  val out_mem_addr  = RegNext(dst_idx << 4.U)
-  val out_mem_write_en  = RegNext(opcode_alu_en)
 
   val alu_opcode_min_en = alu_opcode === alu_opcode_min.U
   val alu_opcode_max_en = alu_opcode === alu_opcode_max.U
@@ -315,11 +312,12 @@ class Compute(implicit val p: Parameters) extends Module with CoreParams {
   }
 
   // write to out_mem interface
-  io.out_mem.address := out_mem_addr
-  io.out_mem.read := DontCare
-  io.out_mem.write := out_mem_write_en
   val alu_opcode_minmax_en = alu_opcode_min_en || alu_opcode_max_en
   val alu_opcode_add_en = (alu_opcode === alu_opcode_add.U)
+  out_mem_write := opcode_alu_en && !out_cntr_wrap && busy
+  io.out_mem.address := dst_idx << 4.U
+  io.out_mem.write := out_mem_write
+  io.out_mem.read := DontCare
   io.out_mem.writedata := Mux(alu_opcode_minmax_en, Cat(short_cmp_res.init.reverse),
-                          Mux(alu_opcode_add_en, Cat(short_add_res.init.reverse), Cat(short_shr_res.init.reverse)))
+    Mux(alu_opcode_add_en, Cat(short_add_res.init.reverse), Cat(short_shr_res.init.reverse)))
 }
