@@ -13,6 +13,7 @@ class VTAIO(implicit p: Parameters) extends CoreBundle()(p) {
 class VTA(implicit val p: Parameters) extends Module with CoreParams {
   val io = IO(new VTAIO())
 
+  val arb = Module(new MemArbiter())
   val fetch = Module(new Fetch())
   val compute = Module(new Compute())
   val store = Module(new Store())

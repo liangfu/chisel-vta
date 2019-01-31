@@ -18,6 +18,11 @@ object Launcher {
           (c) => new VTATests(c)
         }
       },
+      "MemArbiter" -> { (manager: TesterOptionsManager) =>
+        Driver.execute(() => new MemArbiter(), manager) {
+          (c) => new MemArbiterTests(c)
+        }
+      },
       "Compute" -> { (manager: TesterOptionsManager) =>
         Driver.execute(() => new Compute(), manager) {
           (c) => new ComputeTests(c)

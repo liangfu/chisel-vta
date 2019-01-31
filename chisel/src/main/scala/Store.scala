@@ -101,7 +101,7 @@ class Store(implicit val p: Parameters) extends Module with CoreParams {
   when (push && push_prev_dep_ready) { state := s_DONE }
 
   // dependency queue processing
-  io.g2s_dep_queue.ready := pop_prev_dep_ready
+  io.g2s_dep_queue.ready := pop_prev_dep_ready && dump
   io.g2s_dep_queue.data <> DontCare
   when (pop_prev_dep && io.g2s_dep_queue.valid && dump) {
     pop_prev_dep_ready := true.B
@@ -136,20 +136,19 @@ class Store(implicit val p: Parameters) extends Module with CoreParams {
 
   // enqueue from out_mem to fifo
   val out_sram_addr = (sram_idx * batch.U + enq_cntr_val) << 4.U
-  out_mem_read := enq_cntr_en && !enq_cntr_wrap
+  out_mem_read := enq_cntr_en && !enq_cntr_wrap && busy
   io.out_mem.read := out_mem_read
   io.out_mem.address := out_sram_addr
   io.out_mem.write <> DontCare
   io.out_mem.writedata <> DontCare
   out_queue.io.enq.bits := io.out_mem.readdata
-  when (out_mem_read && !enq_cntr_wait) {
+  when (out_mem_read && !enq_cntr_wait && busy) {
     out_queue.io.enq.valid := 1.U
   } .otherwise {
     out_queue.io.enq.valid := 0.U
   }
 
   // dequeue fifo and send to outputs
-  // out_queue.io.deq.ready := deq_cntr_en && !deq_cntr_wait
   io.outputs.writedata := out_queue.io.deq.bits
   io.outputs.address := (dram_idx * batch.U + deq_cntr_val) << 4.U
   io.outputs.read <> DontCare

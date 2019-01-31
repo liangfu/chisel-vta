@@ -68,6 +68,9 @@ test_store:
 test_vta:
 	$(SBT) -v "test:runMain vta.Launcher VTA --backend-name verilator"
 
+test_arbiter:
+	$(SBT) -v "test:runMain vta.Launcher MemArbiter --backend-name verilator"
+
 clean:
 	rm -rf $(gen_dir) $(out_dir) test_run_dir
 
