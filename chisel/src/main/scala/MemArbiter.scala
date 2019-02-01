@@ -47,12 +47,6 @@ class MemArbiter(implicit val p: Parameters) extends Module {
   io.out_cache.readdata <> DontCare
 
   // read
-  io.axi_master.address := MuxLookup(state, s_IDLE,
-    List(s_INS_CACHE_READ -> io.ins_cache.address,
-         s_INP_CACHE_READ -> io.inp_cache.address,
-         s_WGT_CACHE_READ -> io.wgt_cache.address,
-         s_UOP_CACHE_READ -> io.uop_cache.address,
-         s_ACC_CACHE_READ -> io.acc_cache.address, s_IDLE -> 0.U))
   val axi_master_read = MuxLookup(state, s_IDLE,
     List(s_INS_CACHE_READ -> io.ins_cache.read,
          s_INP_CACHE_READ -> io.inp_cache.read,
