@@ -42,7 +42,7 @@ class MemArbiter(implicit val p: Parameters) extends Module {
 
   // write
   io.axi_master.writedata  := io.out_cache.writedata
-  io.axi_master.write := io.out_cache.write && state === s_OUT_CACHE_WRITE
+  io.axi_master.write := io.out_cache.write && out_cache_write
   io.out_cache.waitrequest := io.axi_master.waitrequest && (out_cache_write || out_cache_ack)
   io.out_cache.readdata <> DontCare
 
@@ -69,6 +69,8 @@ class MemArbiter(implicit val p: Parameters) extends Module {
     is (s_IDLE) {
       when (io.ins_cache.read) {
         state := s_INS_CACHE_READ
+      } .elsewhen (io.out_cache.write) {
+        state := s_OUT_CACHE_WRITE
       } .elsewhen (io.inp_cache.read) {
         state := s_INP_CACHE_READ
       } .elsewhen (io.inp_cache.read) {
@@ -79,8 +81,6 @@ class MemArbiter(implicit val p: Parameters) extends Module {
         state := s_UOP_CACHE_READ
       } .elsewhen (io.acc_cache.read) {
         state := s_ACC_CACHE_READ
-      } .elsewhen (io.out_cache.write) {
-        state := s_OUT_CACHE_WRITE
       } .otherwise {
         state := s_IDLE
       }
@@ -116,9 +116,9 @@ class MemArbiter(implicit val p: Parameters) extends Module {
       }
     }
     is (s_OUT_CACHE_ACK) {
-      when (!io.axi_master.waitrequest) {
+      // when (!io.axi_master.waitrequest) {
         state := s_IDLE
-      }
+      // }
     }
   }
 
